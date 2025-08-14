@@ -1,0 +1,33 @@
+name: tacto6d
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  # --- core numerics (ABI-matched) ---
+  - numpy<2
+  - scipy<2
+  - numba
+  # --- fenics/dolfinx & friends ---
+  - fenics-dolfinx=0.9.*
+  - mpi4py
+  - petsc
+  - slepc
+  - scikit-umfpack
+  # --- optimization ---
+  - osqp
+  - cvxpy
+  # --- viz ---
+  - matplotlib
+  - pyvista
+  - pyvistaqt
+  - vtk
+  - colorcet
+  # --- utils / io ---
+  - opencv
+  - imageio
+  - pillow
+  - pyyaml
+  - tqdm
+  # --- notebooks ---
+  - jupyterlab
+  - ipywidgets

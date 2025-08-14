@@ -1,0 +1,17 @@
+# Optional: for Windows-native **without** FEniCSx. Use pip:
+#   python -m pip install -r requirements.txt
+# You can run synthetic generators and visualization, but not FEM.
+
+numpy
+scipy
+numba
+matplotlib
+pyvista
+pyvistaqt
+vtk
+opencv-python
+imageio
+Pillow
+pyyaml
+tqdm
+colorcet
