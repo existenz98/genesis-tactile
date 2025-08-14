@@ -110,10 +110,10 @@ python src/scripts/run_forward.py --force data/input/force_combo.npz   --config 
 python src/scripts/run_inverse.py --obs data/output/disp.npz --influence data/cache/H_sparse.npz --out data/output/force_est.npz
 ```
 
-### Render synthetic camera frames (RGB particles @ 3 depths):
+### Render synthetic camera frames (gel with RGB particles @ 3 layers):
 
 ```bash
-python src/scripts/render_camera_frames.py --disp data/output/disp.npz --res 640 480 --out data/output/cam/
+python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
 ```
 
 ### End-to-end validation:

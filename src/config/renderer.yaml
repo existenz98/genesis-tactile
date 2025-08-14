@@ -1,0 +1,46 @@
+camera:
+  model: pinhole
+  img_wh: [640, 480]
+  z_ref_mm: 20.0     # plane depth that maps to full image width/height
+  z_cam_mm: 20.0     # camera center is at z=-20 mm (looking toward +z)
+
+# Visible area in mm (maps to full image at z_ref_mm)
+view_mm: [30.0, 20.0]
+
+# Background color (BGR, 0..255)
+background_bgr: [60, 60, 60]   # a mid-gray background
+
+layers:
+  - name: red
+    z_mm: [0.0, 1.0]
+    color_bgr: [60, 60, 255]
+    density_per_mm2: 5
+    radius_mm: 0.15
+    depth_brightness: exp
+    depth_beta: 0.15
+    shape: poly       # disk | poly
+    poly_vertices: 5
+
+  - name: green
+    z_mm: [1.0, 2.0]
+    color_bgr: [60, 255, 60]
+    density_per_mm2: 5
+    radius_mm: 0.15
+    depth_brightness: exp
+    depth_beta: 0.20
+    shape: poly
+    poly_vertices: 5
+
+  - name: blue
+    z_mm: [2.0, 3.0]
+    color_bgr: [255, 60, 60]  # BGR; this looks 'blue' in OpenCV if set to [255,60,60]
+    density_per_mm2: 5
+    radius_mm: 0.15
+    depth_brightness: exp
+    depth_beta: 0.25
+    shape: poly           # try polygon shapes
+    poly_vertices: 5
+
+deformation:
+  mode: none             # "none" | "xdmf"
+  xdmf_path: data/output/u.xdmf
