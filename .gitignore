@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+.env/
+.ipynb_checkpoints/
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# Data & cache
+data/output/
+data/cache/
+*.npz
+*.npy
+*.png
+*.jpg
+*.gif
+*.mp4
+
+# OS
+.DS_Store
+Thumbs.db
