@@ -107,7 +107,12 @@ python src/scripts/run_forward.py --force data/input/force_combo.npz   --config 
 ### Inverse (displacement/observations → force):
 
 ```bash
-python src/scripts/run_inverse.py --obs data/output/disp.npz --influence data/cache/H_sparse.npz --out data/output/force_est.npz
+python src/scripts/run_ifem_from_u.py \
+  --mesh data/output/u.xdmf \
+  --dofs data/output/u.dofs.npz \
+  --config src/config/default.yaml \
+  --Nx 60 --Ny 40 \
+  --pc jacobi --ksp cg --ksp_rtol 1e-7 --ksp_atol 0 --ksp_monitor
 ```
 
 ### Render synthetic camera frames (gel with RGB particles @ 3 layers):

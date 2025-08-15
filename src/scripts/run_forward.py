@@ -10,6 +10,15 @@ Usage example:
     --viz_prefix data/output/disp_top \
     --sample_Nx 60 --sample_Ny 40
 
+Fast:
+  python src/scripts/run_forward.py \
+    --force data/input/force_combo.npz \
+    --config src/config/default.yaml \
+    --xdmf data/output/u.xdmf \
+    --viz_prefix data/output/disp_top \
+    --sample_Nx 60 --sample_Ny 40 \
+    --ksp cg --pc gamg --ksp_monitor
+
 This saves:
   - XDMF (mesh + u) for ParaView/PyVista
   - PNGs of top-surface displacement (u_z heatmap, (u_x,u_y) quiver)
