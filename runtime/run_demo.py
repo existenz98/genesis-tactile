@@ -29,15 +29,14 @@ python -m runtime.run_demo \
   --device 0 \
   --color_flow
 
-4. Optical flow using raw image (instead of unmixed r,g,b), no debug window (good for headless)
+4. Optical flow using raw image (no compensation, no unmix r,g,b)
 python -m runtime.run_demo \
   --source video \
   --input /path/to/video.mp4 \
   --compensation skip \
+  --flow dis \
   --unmix skip \
-  --raw_flow \
-  --no_display \
-  --write_videos
+  --raw_flow
 
 5. Downsampling
 python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5 --color_flow
@@ -51,13 +50,15 @@ if THIS_DIR not in sys.path:
     sys.path.insert(0, THIS_DIR)
 
 from .pipeline import RuntimePipeline
-from .config.settings import (
+from runtime.config.loader import load_yaml_config
+from runtime.config.settings import (
     RuntimeConfig, SourceMode, CompensationMode, UnmixMode, FlowMethod,
     CameraConfig, VirtualSourceConfig, FlowConfig, OutputConfig, DisplayConfig
 )
 
 def parse_args():
     ap = argparse.ArgumentParser("Streaming RGB Particle Flow Demo", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    ap.add_argument("--config", default=None, help="Path to runtime_config.yaml")
     ap.add_argument("--source", choices=[m.value for m in SourceMode], default=SourceMode.VIDEO.value, help="camera|video|folder")
     ap.add_argument("--input", default="", help="Path to video file or folder (for non-camera modes)")
     ap.add_argument("--device", type=int, default=0, help="Camera device index")
@@ -78,8 +79,57 @@ def parse_args():
     ap.add_argument("--no_display", action="store_true", help="Disable debug windows")
     return ap.parse_args()
 
+
+def cli_overlay(cfg, args):
+    if args.source is not None:
+        cfg.source_mode = SourceMode(args.source)
+    if args.input:
+        cfg.input_path = args.input
+    if args.device is not None:
+        cfg.camera.device_index = args.device
+    if args.width:
+        cfg.camera.width = args.width
+    if args.height:
+        cfg.camera.height = args.height
+    if args.fps is not None:
+        cfg.virtual.fps = args.fps
+
+    if args.compensation:
+        cfg.compensation_mode = CompensationMode(args.compensation)
+    if args.unmix:
+        cfg.unmix_mode = UnmixMode(args.unmix)
+    if args.flow:
+        cfg.flow.method = FlowMethod(args.flow)
+
+    # tri-state booleans
+    if args.color_flow is not None:
+        cfg.do_color_flow = args.color_flow
+    if args.raw_flow is not None:
+        cfg.do_raw_flow = args.raw_flow
+    if args.display_enable is not None:
+        cfg.display.enable = args.display_enable
+
+    # optional convenience overrides
+    if args.out:
+        cfg.output.dir = args.out
+    if args.out_fps is not None:
+        cfg.output.fps = args.out_fps
+    if args.downscale is not None:
+        cfg.downscale = args.downscale
+    if args.max_frames:
+        cfg.max_frames = args.max_frames    
+
+
 def main():
     a = parse_args()
+
+    ## 1) defaults
+    #cfg = RuntimeConfig()
+    ## 2) YAML overlay (if provided)
+    #if a.config:
+    #    cfg = load_yaml_config(a.config)
+    ## 3) CLI overlay
+    #cli_overlay(cfg, a)
 
     cfg = RuntimeConfig(
       source_mode=SourceMode(a.source),
@@ -88,7 +138,7 @@ def main():
       virtual=VirtualSourceConfig(fps=a.fps, loop=False),
       compensation_mode=CompensationMode(a.compensation),
       unmix_mode=UnmixMode(a.unmix),
-      flow=FlowConfig(method=FlowMethod(a.flow), vis_flow_max=None, incremental=False),
+      flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
       do_color_flow=a.color_flow,
       do_raw_flow=a.raw_flow,
       output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),

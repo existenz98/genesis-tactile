@@ -31,6 +31,8 @@ flow:
   method: dis
   vis_flow_max: null          # null => auto by 95th percentile
   incremental: false          # false: compare to FIRST frame; true: incremental (not used yet)
+  ds_block: 16                # downsampled grid for algorithms
+  ds_pool: median
 
 # ---------- PERCEPTION PARAMS ----------
 # If your RuntimeConfig includes these nested configs (recommended):
@@ -50,7 +52,7 @@ unmix:
 
 # ---------- PIPELINE MODES ----------
 do_color_flow: true           # compute R/G/B flows vs first frame
-do_raw_flow: false            # additionally compute raw grayscale flow
+do_raw_flow: true             # additionally compute raw grayscale flow
 
 # ---------- OUTPUT ----------
 output:
@@ -63,16 +65,32 @@ display:
   enable: true
   window_scale: 0.7
   wait_key_ms: 1
+  
   show_input: true
+  
   show_compensated: true
+  
   show_seg_color: true
   show_seg_R: false
   show_seg_G: false
   show_seg_B: false
-  show_flow_R: true
-  show_flow_G: true
-  show_flow_B: true
-  show_flow_raw: false
+
+  show_flow_color_R: true
+  show_flow_color_G: true
+  show_flow_color_B: true
+  show_flow_quiver_R: true
+  show_flow_quiver_G: true
+  show_flow_quiver_B: true
+
+  show_flow_color_raw: true
+  show_flow_quiver_raw: true
+
+  quiver_block: 16
+  quiver_pool: median
+  quiver_scale: 1.2
+  quiver_bg: black
+
+  
 
 # ---------- MISC ----------
 downscale: 1.0                # <1 to speed up

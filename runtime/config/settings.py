@@ -53,25 +53,52 @@ class UnmixConfig:
 @dataclass
 class FlowConfig:
     method: FlowMethod = FlowMethod.DIS
+
     # Farneback parameters are internal defaults; DIS/TVL1 use OpenCV presets
-    vis_flow_max: Optional[float] = None  # None => auto by 95th percentile
     incremental: bool = False             # False: compare to first frame; True: accumulate incremental
+
+    # Downsample, block-pooled
+    ds_block: int = 16            # tile size (e.g., 8 / 16 / 24 / 32)
+    ds_pool: str = "median"       # "median" (robust) or "mean"
+
+    # Visualization
+    vis_flow_max: Optional[float] = 20  # Max flow strength unit pixels.  None => auto by 95th percentile
+
 
 @dataclass
 class DisplayConfig:
     enable: bool = True
     window_scale: float = 0.7     # resize display windows
-    wait_key_ms: int = 0          # cv2.waitKey delay per frame, 0 will block until key press.
+    wait_key_ms: int = 1          # cv2.waitKey delay per frame, 0 will block until key press.
     show_input: bool = True
     show_compensated: bool = True
     show_seg_color: bool = True   # color segmentation (argmax of components)
     show_seg_R: bool = False      # grayscale component maps
     show_seg_G: bool = False
     show_seg_B: bool = False
-    show_flow_R: bool = True      # color-coded optical flow per component
-    show_flow_G: bool = True
-    show_flow_B: bool = True
-    show_flow_raw: bool = False   # raw grayscale flow
+
+   
+    # Color visualization of flow
+    show_flow_color_R: bool = True
+    show_flow_color_G: bool = True
+    show_flow_color_B: bool = True
+    show_flow_color_raw: bool = True
+
+    # Quiver visualization of flow
+    show_flow_quiver_R: bool = True
+    show_flow_quiver_G: bool = True
+    show_flow_quiver_B: bool = True
+    show_flow_quiver_raw: bool = True
+
+    # quiver rendering parameters
+    quiver_block: int = 32
+    quiver_pool: str = "median"
+    quiver_scale: float = 2.0
+    quiver_thickness: int = 1
+    quiver_min_px: float = 0.6              # skip arrows shorter than this (in px)
+    quiver_draw_centers: bool = True       # draw center dots for reference
+    quiver_color: tuple = (255, 255, 255)   # BGR
+    quiver_bg: str = "black"                # "black" | "white"
 
 @dataclass
 class OutputConfig:
@@ -97,12 +124,12 @@ class RuntimeConfig:
 
     # Options
     do_color_flow: bool = True
-    do_raw_flow: bool = False
+    do_raw_flow: bool = True
 
     # Output & display
     output: OutputConfig = field(default_factory=OutputConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
 
     # Misc
-    downscale: float = 1.0
+    downscale: float = 2.0
     max_frames: Optional[int] = None   # stop after N frames if set

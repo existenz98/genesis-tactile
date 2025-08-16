@@ -11,7 +11,7 @@ from .input_sources.video_reader import VideoFileSource, FolderSource
 from .preprocessing.photo_compensator import BaselineCompensator, PerFrameCompensator, bgr_to_rgb
 from .preprocessing.feature_extraction import UnmixModel
 from .preprocessing.optical_flow import compute_flow, to_gray_f32_bgr, to_gray_f32_linear_component
-from .output.visualizer import flow_to_color_bgr, VideoWriters
+from .output.visualizer import flow_to_color_bgr, draw_quiver_bgr, flow_block_reduce, VideoWriters
 from .output.display import DebugDisplay
 
 
@@ -22,9 +22,15 @@ def _resize_bgr(img: np.ndarray, scale: float) -> np.ndarray:
     return cv2.resize(img, (nw,nh), interpolation=cv2.INTER_AREA)
 
 class RuntimePipeline:
-    """Streaming pipeline: source -> (optional) compensation -> (optional) unmix -> flows -> outputs & display."""
+    """
+    Streaming pipeline:
+      source -> (compensation) -> (unmix) -> flows -> windows/videos + algorithm handoff.
+    Exposes latest dense and downsampled flows via `self.latest_flows` for the next-stage solvers.
+    """
+
     def __init__(self, cfg: RuntimeConfig):
         self.cfg = cfg
+        self.latest_flows: Dict[str, Any] = {}  # updated every frame
 
     def _make_source(self):
         sm = self.cfg.source_mode
@@ -44,14 +50,13 @@ class RuntimePipeline:
         cfg = self.cfg
         src = self._make_source()
         disp = DebugDisplay(cfg.display)
-        key = disp.tick()
 
         writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
-        outputs = {}
+        outputs: Dict[str, Any] = {}
 
-        # State for first frame references
+        # First-frame references
         ref_bal_bgr: Optional[np.ndarray] = None
-        ref_comp: Optional[np.ndarray] = None  # HxWx3 linear components
+        ref_comp: Optional[np.ndarray] = None  # HxWx3 linear components (R/G/B)
         ref_raw_gray: Optional[np.ndarray] = None
 
         # Modules
@@ -73,7 +78,6 @@ class RuntimePipeline:
                 bgr = _resize_bgr(bgr, cfg.downscale)
                 if cfg.display.show_input:
                     disp.show("input", bgr)
-                    key = disp.tick()
 
                 # Compensation
                 if isinstance(compensator, BaselineCompensator) and ref_bal_bgr is None:
@@ -87,17 +91,22 @@ class RuntimePipeline:
                 if cfg.display.show_compensated:
                     disp.show("compensated", bal_bgr)
 
-                # Initialize references on first frame
+                # Initialize refs from the first balanced frame
                 if ref_bal_bgr is None:
                     ref_bal_bgr = bal_bgr.copy()
                     if cfg.unmix_mode != UnmixMode.SKIP and unmix is not None:
                         unmix.fit(ref_bal_bgr)
-                        ref_comp = unmix.transform(ref_bal_bgr)
+                        ref_comp = unmix.transform(ref_bal_bgr)     # linear components
                     ref_raw_gray = to_gray_f32_bgr(ref_bal_bgr if cfg.unmix_mode != UnmixMode.SKIP else bgr)
 
-                # Unmix per frame if enabled
+                # Per-frame containers for output to solver
+                dense: Dict[str, Any] = {}
+                down: Dict[str, Any] = {}
+
+                # Color unmix per frame, and per-color flows
                 if cfg.unmix_mode != UnmixMode.SKIP and unmix is not None:
                     comp_lin = unmix.transform(bal_bgr)  # HxWx3 linear
+
                     # Visualization: segmentation color & component maps
                     if cfg.display.show_seg_color or cfg.display.show_seg_R or cfg.display.show_seg_G or cfg.display.show_seg_B:
                         seg_idx = np.argmax(comp_lin, axis=-1)
@@ -116,27 +125,75 @@ class RuntimePipeline:
                         if cfg.display.show_seg_B: disp.show("comp_B", to_vis(comp_lin[...,2]))
 
                     # Per-color flows vs reference
-                    if cfg.do_color_flow and ref_comp is not None:
-                        for k, name in enumerate(["R","G","B"]):
-                            refg = to_gray_f32_linear_component(ref_comp[...,k])
-                            curg = to_gray_f32_linear_component(comp_lin[...,k])
-                            vy, vx = compute_flow(refg, curg, cfg.flow)  # current -> reference
-                            flow_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
-                            win = f"flow_{name}"
-                            if getattr(cfg.display, f"show_flow_{name}"):
-                                disp.show(win, flow_bgr)
+                    for k, name in enumerate(["R","G","B"]):
+                        refg = to_gray_f32_linear_component(ref_comp[...,k])
+                        curg = to_gray_f32_linear_component(comp_lin[...,k])
+                        vy, vx = compute_flow(refg, curg, cfg.flow)
+                        dense[name] = (vy, vx)
+
+                        # COLOR window + (optional) writing
+                        if getattr(cfg.display, f"show_flow_color_{name}"):
+                            color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
+                            disp.show(f"flow_color_{name}", color_bgr)
                             if writers is not None:
-                                writers.write(win, flow_bgr)
+                                writers.write(f"flow_color_{name}", color_bgr)
+
+                        # QUIVER window
+                        if getattr(cfg.display, f"show_flow_quiver_{name}"):
+                            quiv_bgr = draw_quiver_bgr(
+                                vy, vx,
+                                block=cfg.display.quiver_block,
+                                pool=cfg.display.quiver_pool,
+                                scale=cfg.display.quiver_scale,
+                                thickness=cfg.display.quiver_thickness,
+                                color=cfg.display.quiver_color,
+                                bg=cfg.display.quiver_bg,
+                                min_px=cfg.display.quiver_min_px,
+                                draw_centers=cfg.display.quiver_draw_centers,
+                                center_color=cfg.display.quiver_color,
+                            )
+                            disp.show(f"flow_quiver_{name}", quiv_bgr)
+
+                        # downsampled arrays for output (to algorithms)
+                        vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
+                        down[name] = (vy_ds, vx_ds)
 
                 # Raw flow vs reference
                 if cfg.do_raw_flow:
-                    cur_gray = to_gray_f32_bgr(bal_bgr if cfg.unmix_mode != UnmixMode.SKIP else bgr)
+                    cur_gray = to_gray_f32_bgr(bal_bgr if unmix is not None else bgr)
                     vy, vx = compute_flow(ref_raw_gray, cur_gray, cfg.flow)
-                    flow_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
-                    if cfg.display.show_flow_raw:
-                        disp.show("flow_raw", flow_bgr)
-                    if writers is not None:
-                        writers.write("flow_raw", flow_bgr)
+                    dense["raw"] = (vy, vx)
+
+                    if cfg.display.show_flow_color_raw:
+                        color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
+                        disp.show("flow_color_raw", color_bgr)
+                        if writers is not None:
+                            writers.write("flow_color_raw", color_bgr)
+
+                    if cfg.display.show_flow_quiver_raw:
+                        quiv_bgr = draw_quiver_bgr(
+                            vy, vx,
+                            block=cfg.display.quiver_block,
+                            pool=cfg.display.quiver_pool,
+                            scale=cfg.display.quiver_scale,
+                            thickness=cfg.display.quiver_thickness,
+                            color=cfg.display.quiver_color,
+                            bg=cfg.display.quiver_bg,
+                            min_px=cfg.display.quiver_min_px,
+                            draw_centers=cfg.display.quiver_draw_centers,
+                            center_color=cfg.display.quiver_color,
+                        )
+                        disp.show("flow_quiver_raw", quiv_bgr)
+
+                    vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
+                    down["raw"] = (vy_ds, vx_ds)
+
+                # Output: make latest flows available to solvers (iFEM/physics/CNN)
+                self.latest_flows = {
+                    "frame_index": count,
+                    "dense": dense,         # dict: { 'R': (vy, vx), 'G':..., 'B':..., 'raw':(...) }
+                    "downsampled": down,    # dict: same keys but pooled arrays
+                }
 
                 key = disp.tick()
                 if key == ord('q'):

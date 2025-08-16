@@ -29,7 +29,7 @@ def compute_flow(ref_gray: np.ndarray, cur_gray: np.ndarray, cfg: FlowConfig) ->
         # need float
         ref = _as_f32(ref_gray)
         cur = _as_f32(cur_gray)
-        flow = cv2.calcOpticalFlowFarneback(cur, ref, None,
+        flow = cv2.calcOpticalFlowFarneback(ref, cur, None,
                                             pyr_scale=0.5, levels=4, winsize=15, iterations=5,
                                             poly_n=7, poly_sigma=1.5, flags=0)
         vx = flow[...,0].astype(np.float32); vy = flow[...,1].astype(np.float32)
@@ -51,7 +51,7 @@ def compute_flow(ref_gray: np.ndarray, cur_gray: np.ndarray, cfg: FlowConfig) ->
         # need u8
         ref = _as_u8(ref_gray)
         cur = _as_u8(cur_gray)
-        flow = dis.calc(cur, ref, None)
+        flow = dis.calc(ref, cur, None)
         vx = flow[...,0].astype(np.float32); vy = flow[...,1].astype(np.float32)
         return vy, vx
 
@@ -65,7 +65,7 @@ def compute_flow(ref_gray: np.ndarray, cur_gray: np.ndarray, cfg: FlowConfig) ->
             raise RuntimeError("TV-L1 not available. Install opencv-contrib-python or choose 'farneback'/'dis'.")
         # need u8
         ref = _as_u8(ref_gray); cur = _as_u8(cur_gray)
-        flow = tvl1.calc(cur, ref, None)
+        flow = tvl1.calc(ref, cur, None)
         vx = flow[...,0].astype(np.float32); vy = flow[...,1].astype(np.float32)
         return vy, vx
 

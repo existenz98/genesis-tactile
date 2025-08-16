@@ -4,16 +4,73 @@ from typing import Iterator
 
 def flow_to_color_bgr(vy: np.ndarray, vx: np.ndarray, max_flow: float = None) -> np.ndarray:
     mag = np.sqrt(vy**2 + vx**2)
-    ang = np.arctan2(-vy, vx)  # invert y for image coords
+    ang = np.arctan2(vy, vx)            # image coords: +vy is down
     if max_flow is None:
         max_flow = np.percentile(mag, 95)
         if max_flow < 1e-6: max_flow = 1e-6
-    H = (ang + np.pi) / (2*np.pi)        # [0,1)
+    H = (ang + np.pi) / (2*np.pi)       # [0,1)
     S = np.ones_like(H, dtype=np.float32)
     V = np.clip(mag / max_flow, 0, 1)
     hsv = np.stack([H*179.0, S*255.0, V*255.0], axis=-1).astype(np.uint8)  # OpenCV HSV scales
     bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     return bgr
+
+def flow_block_reduce(vy: np.ndarray, vx: np.ndarray, block: int = 16, pool: str = "median"):
+    """
+    Spatial pooling of flow vectors on block tiles; returns vy_ds, vx_ds, block.
+    """
+
+    H, W = vy.shape
+    h = H // block
+    w = W // block
+    if h == 0 or w == 0:
+        return vy, vx, block
+    vy_c = vy[:h*block, :w*block].reshape(h, block, w, block).transpose(0, 2, 1, 3)
+    vx_c = vx[:h*block, :w*block].reshape(h, block, w, block).transpose(0, 2, 1, 3)
+    if pool == "mean":
+        vy_ds = vy_c.mean(axis=(2, 3))
+        vx_ds = vx_c.mean(axis=(2, 3))
+    else:
+        vy_ds = np.median(vy_c, axis=(2, 3))
+        vx_ds = np.median(vx_c, axis=(2, 3))
+    return vy_ds.astype(np.float32), vx_ds.astype(np.float32), block
+
+def draw_quiver_bgr(
+    vy: np.ndarray, vx: np.ndarray, block: int = 16, pool: str = "median",
+    scale: float = 1.0, thickness: int = 1, color=(255, 255, 255), bg: str = "black",
+    min_px: float = 0.6,
+    draw_centers: bool = False,
+    center_color=(80, 80, 80),
+    center_radius: int = 1,
+    ) -> np.ndarray:
+    """
+    Draw quiver using block-pooled vectors.
+    - Skips arrows whose magnitude < min_px (prevents dot lattice).
+    """
+    H, W = vy.shape
+    vy_ds, vx_ds, blk = flow_block_reduce(vy, vx, block=block, pool=pool)
+    img = np.full((H, W, 3), 255, np.uint8) if bg == "white" else np.zeros((H, W, 3), np.uint8)
+
+    ys = (np.arange(vy_ds.shape[0]) * blk + blk * 0.5).astype(np.float32)
+    xs = (np.arange(vx_ds.shape[1]) * blk + blk * 0.5).astype(np.float32)
+
+    if draw_centers:
+        for iy, cy in enumerate(ys):
+            for ix, cx in enumerate(xs):
+                cv2.circle(img, (int(round(cx)), int(round(cy))), center_radius, center_color, -1, lineType=cv2.LINE_AA)
+
+    for iy, cy in enumerate(ys):
+        for ix, cx in enumerate(xs):
+            dy = float(vy_ds[iy, ix]) * scale
+            dx = float(vx_ds[iy, ix]) * scale
+            if (dx*dx + dy*dy) < (min_px * min_px):
+                continue  # skip tiny vectors to avoid "dot" artifacts
+            x0, y0 = int(round(cx)), int(round(cy))
+            x1 = int(round(cx + dx))
+            y1 = int(round(cy + dy))            # image coords: +dy draws downward
+            cv2.arrowedLine(img, (x0, y0), (x1, y1), color, thickness, tipLength=0.35)
+    return img
+
 
 class VideoWriters:
     def __init__(self, out_dir: str, fps: float):
