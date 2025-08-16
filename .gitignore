@@ -15,6 +15,7 @@ __pycache__/
 # Data & cache
 data/output/
 data/cache/
+data/raw/
 *.npz
 *.npy
 *.png
