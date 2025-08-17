@@ -13,6 +13,8 @@ from .preprocessing.feature_extraction import UnmixModel
 from .preprocessing.optical_flow import compute_flow, to_gray_f32_bgr, to_gray_f32_linear_component
 from .output.visualizer import flow_to_color_bgr, draw_quiver_bgr, flow_block_reduce, scalar_to_color_bgr, draw_quiver_grid_bgr, VideoWriters
 from .output.display import DebugDisplay
+from .core.frame_bus import FrameBus
+from .output.vis3d_pyvista import Vis3DLive
 from .algorithms.physics_solver import PhysicsSolver
 from .config.settings import PhysicsConfig
 
@@ -33,6 +35,8 @@ class RuntimePipeline:
     def __init__(self, cfg: RuntimeConfig):
         self.cfg = cfg
         self.latest_flows: Dict[str, Any] = {}  # updated every frame
+        self.bus: Optional[FrameBus] = None     # but's topics will be created later by runner
+        self.latest_physics = None
 
     def _make_source(self):
         sm = self.cfg.source_mode
@@ -48,9 +52,14 @@ class RuntimePipeline:
         else:
             raise ValueError(f"Unknown source mode: {sm}")
 
-    def run(self) -> Dict[str, Any]:
+    def run(self, bus: Optional[FrameBus] = None) -> Dict[str, Any]:
         cfg = self.cfg
+        self.bus = bus
+
+        # camera source
         src = self._make_source()
+
+        # debug 2D display
         disp = DebugDisplay(cfg.display)
 
         writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
@@ -81,21 +90,23 @@ class RuntimePipeline:
         src.start()
         try:
             for bgr in src.frames():
+                #print("pipeline - got new frame")
+
                 bgr = _resize_bgr(bgr, cfg.downscale)
                 if cfg.display.show_input:
                     disp.show("input", bgr)
 
                 # Compensation
+                #print("pipeline - compensation")
                 if isinstance(compensator, BaselineCompensator) and ref_bal_bgr is None:
                     # fit on first frame
                     compensator.fit(bgr)
                 if compensator is not None:
                     bal_bgr = compensator.apply(bgr)
+                    if cfg.display.show_compensated:
+                        disp.show("compensated", bal_bgr)
                 else:
                     bal_bgr = bgr.copy()
-
-                if cfg.display.show_compensated:
-                    disp.show("compensated", bal_bgr)
 
                 # Initialize refs from the first balanced frame
                 if ref_bal_bgr is None:
@@ -111,6 +122,7 @@ class RuntimePipeline:
 
                 # Color unmix per frame, and per-color flows
                 if cfg.unmix_mode != UnmixMode.SKIP and unmix is not None:
+                    #print("pipeline - color unmix")
                     comp_lin = unmix.transform(bal_bgr)  # HxWx3 linear
 
                     # Visualization: segmentation color & component maps
@@ -166,10 +178,12 @@ class RuntimePipeline:
 
                 # Raw flow vs reference
                 if cfg.do_raw_flow:
+                    #print("pipeline - compute flow")
                     cur_gray = to_gray_f32_bgr(bal_bgr if unmix is not None else bgr)
                     vy, vx = compute_flow(ref_raw_gray, cur_gray, cfg.flow)
                     dense["raw"] = (vy, vx)
 
+                    #print("pipeline - show flow")
                     if cfg.display.show_flow_color_raw:
                         color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
                         disp.show("flow_color_raw", color_bgr)
@@ -192,9 +206,12 @@ class RuntimePipeline:
                         disp.show("flow_quiver_raw", quiv_bgr)
 
                     # Solver
+                    #print("pipeline - phys solver")
                     phys = ps.solve_from_dense(vy, vx)  # vy/vx are in pixels
-                    self.latest_physics = phys  # expose to downstream (SDK / algorithms)
-                    # visualization
+                    self.latest_physics = phys  # expose to downstream (SDK / Visualization)
+
+                    # 2D Visualization
+                    #print("pipeline - show 2d view")
                     pd = self.cfg.physics_display
                     Hf, Wf = vy.shape
 
@@ -224,17 +241,25 @@ class RuntimePipeline:
                         )
                         disp.show("physics_shear", quiv_bgr)
 
+                    # Publish message   (receiver is 3D visualization thread)
+                    #print("publish >>>")
+                    if self.bus is not None:
+                        self.bus.publish("physics", phys)
+                    #print("publish <<<")
+
                     vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
                     down["raw"] = (vy_ds, vx_ds)
 
 
                 # Output: make latest flows available to solvers (iFEM/physics/CNN)
+                #print("pipeline - self.latest_flows")
                 self.latest_flows = {
                     "frame_index": count,
                     "dense": dense,         # dict: { 'R': (vy, vx), 'G':..., 'B':..., 'raw':(...) }
                     "downsampled": down,    # dict: same keys but pooled arrays
                 }
 
+                #print("pipeline - cv disp.tick")
                 key = disp.tick()
                 if key == ord('q'):
                     break
@@ -242,6 +267,9 @@ class RuntimePipeline:
                 count += 1
                 if cfg.max_frames is not None and count >= cfg.max_frames:
                     break
+
+                #print("pipeline - loop")
+
         finally:
             src.stop()
             disp.close()

@@ -18,9 +18,9 @@ dependencies:
   - cvxpy
   # --- viz ---
   - matplotlib
-  - pyvista
+  - pyvista=0.45.2
+  - vtk=9.4.2
   - pyvistaqt
-  - vtk
   - colorcet
   # --- utils / io ---
   - opencv

@@ -96,15 +96,38 @@ class DisplayConfig:
     quiver_scale: float = 2.0
     quiver_thickness: int = 1
     quiver_min_px: float = 0.6              # skip arrows shorter than this (in px)
-    quiver_draw_centers: bool = True       # draw center dots for reference
+    quiver_draw_centers: bool = True        # draw center dots for reference
     quiver_color: tuple = (255, 255, 255)   # BGR
     quiver_bg: str = "black"                # "black" | "white"
 
+
 @dataclass
-class OutputConfig:
-    write_videos: bool = True
-    dir: str = "outputs"
-    fps: float = 20.0             # writer fps (if not deriving from source)
+class Vis3DConfig:
+    enable: bool = True              # enable live 3D window
+
+    # surface (pressure)
+    show_height: bool = True        # extrude surface z by w ≈ p / normal_gain
+    height_gain: float = 1.0         # extra gain applied to w if show_height = True
+    surface_opacity: float = 1.0
+    colormap: str = "turbo"
+    p_vmin: Optional[float] = None   # fixed pressure colorbar min; None = auto percentiles
+    p_vmax: Optional[float] = None   # fixed pressure colorbar max; None = auto percentiles
+
+    # traction arrows
+    arrow_enable: bool = True
+    arrow_stride: int = 1            # draw every Nth grid point
+    arrow_min_len: float = 0.6       # min vector length to draw, in grid-cell units
+    lift_z_mm: float = 0.2           # lift arrow bases above the surface to avoid z-fighting
+
+    # axis scaling
+    scale_t_auto: bool = True        # auto scale tangential components (xy)
+    scale_n_auto: bool = True        # auto scale normal component (z)
+    scale_t: float = 2.0             # used only if scale_t_auto is False
+    scale_n: float = 2.0             # used only if scale_n_auto is False
+
+    # update cadence
+    update_ms: int = 33              # ~30 FPS update cadence
+
 
 
 @dataclass
@@ -120,9 +143,18 @@ class PhysicsDisplayConfig:
     tau_quiver_thickness: int = 1
     tau_quiver_bg: str = "black"
 
+
+@dataclass
+class OutputConfig:
+    write_videos: bool = True
+    dir: str = "outputs"
+    fps: float = 20.0             # writer fps (if not deriving from source)
+
+
+
 @dataclass
 class PhysicsConfig:
-    # Physical / calibration parameters
+    # Physical solver's / calibration parameters
     thickness_mm: float = 3.0          # gel thickness h
     mm_per_px: float = 0.05            # image scale (set from calibration)
     normal_gain: float = 1.0           # k_n, maps w -> pressure: p = normal_gain * w
@@ -164,8 +196,10 @@ class RuntimeConfig:
     flow: FlowConfig = field(default_factory=FlowConfig)
 
     # Physics solver
-    physics: PhysicsConfig = PhysicsConfig()
-    physics_display: PhysicsDisplayConfig = PhysicsDisplayConfig()
+    physics: PhysicsConfig = field(default_factory=PhysicsConfig)
+    physics_display: PhysicsDisplayConfig = field(default_factory=PhysicsDisplayConfig)
+    vis3d: Vis3DConfig = field(default_factory=Vis3DConfig)
+
 
     # Output & display
     output: OutputConfig = field(default_factory=OutputConfig)

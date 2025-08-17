@@ -51,7 +51,6 @@ unmix:
   reg: 1.0e-6
 
 # ---------- PIPELINE MODES ----------
-do_color_flow: true           # compute R/G/B flows vs first frame
 do_raw_flow: true             # additionally compute raw grayscale flow
 
 # ---------- OUTPUT ----------

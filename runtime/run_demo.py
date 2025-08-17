@@ -41,6 +41,7 @@ python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5
 """
 
 import argparse, os, sys
+import threading
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if THIS_DIR not in sys.path:
@@ -52,6 +53,10 @@ from runtime.config.settings import (
     RuntimeConfig, SourceMode, CompensationMode, UnmixMode, FlowMethod,
     CameraConfig, VirtualSourceConfig, FlowConfig, OutputConfig, DisplayConfig
 )
+from runtime.core.frame_bus import FrameBus
+from runtime.output.vis3d_pyvista import Vis3DLive
+
+
 
 def parse_args():
     ap = argparse.ArgumentParser("Streaming RGB Particle Flow Demo", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -140,12 +145,23 @@ def main():
       max_frames=(a.max_frames or None),
     )
 
+    # Create the shared latest-value bus (between algo pipeline and 3D visualization)
+    bus = FrameBus()
+
+    # Start the pipeline on a worker thread
     pipe = RuntimePipeline(cfg)
-    outs = pipe.run()
-    
-    print("Outputs:")
-    for k,v in outs.items():
-        print(f"  {k}: {v}")
+    t = threading.Thread(target=lambda: pipe.run(bus), name="PipelineThread", daemon=True)
+    t.start()
+
+    # Start the 3D viewer on the MAIN thread (blocking UI loop)
+    if cfg.vis3d.enable:
+        viewer = Vis3DLive(bus=bus, topic="physics", cfg=cfg.vis3d, normal_gain=cfg.physics.normal_gain)
+        print("viewer.start_blocking() >>>")
+        viewer.start_blocking()
+        print("viewer.start_blocking() <<<")
+    else:
+        # If 3D disabled, just join pipeline or add a CLI loop
+        t.join()
 
 if __name__ == "__main__":
     main()
