@@ -11,8 +11,10 @@ from .input_sources.video_reader import VideoFileSource, FolderSource
 from .preprocessing.photo_compensator import BaselineCompensator, PerFrameCompensator, bgr_to_rgb
 from .preprocessing.feature_extraction import UnmixModel
 from .preprocessing.optical_flow import compute_flow, to_gray_f32_bgr, to_gray_f32_linear_component
-from .output.visualizer import flow_to_color_bgr, draw_quiver_bgr, flow_block_reduce, VideoWriters
+from .output.visualizer import flow_to_color_bgr, draw_quiver_bgr, flow_block_reduce, scalar_to_color_bgr, draw_quiver_grid_bgr, VideoWriters
 from .output.display import DebugDisplay
+from .algorithms.physics_solver import PhysicsSolver
+from .config.settings import PhysicsConfig
 
 
 def _resize_bgr(img: np.ndarray, scale: float) -> np.ndarray:
@@ -69,6 +71,10 @@ class RuntimePipeline:
         unmix = None
         if cfg.unmix_mode != UnmixMode.SKIP:
             unmix = UnmixModel(cfg.unmix)
+
+        # Solver
+        phys_cfg = self.cfg.physics
+        ps = PhysicsSolver(phys_cfg)
 
         # Stream
         count = 0
@@ -185,8 +191,42 @@ class RuntimePipeline:
                         )
                         disp.show("flow_quiver_raw", quiv_bgr)
 
+                    # Solver
+                    phys = ps.solve_from_dense(vy, vx)  # vy/vx are in pixels
+                    self.latest_physics = phys  # expose to downstream (SDK / algorithms)
+                    # visualization
+                    pd = self.cfg.physics_display
+                    Hf, Wf = vy.shape
+
+                    if pd.show_pressure_map:
+                        p = phys["p"]
+                        p_bgr = scalar_to_color_bgr(
+                            p,
+                            vmin=(ps.cfg.vis_p_min if ps.cfg.vis_p_min is not None else None),
+                            vmax=(ps.cfg.vis_p_max if ps.cfg.vis_p_max is not None else None),
+                        )
+                        # Resize to full frame for easy comparison
+                        p_bgr = cv2.resize(p_bgr, (Wf, Hf), interpolation=cv2.INTER_CUBIC)
+                        disp.show("physics_pressure", p_bgr)
+
+                    if pd.show_tau_quiver:
+                        tx = phys["tau"]["tx"]; ty = phys["tau"]["ty"]
+                        cell_px = phys["grid"]["cell_px"]
+                        quiv_bgr = draw_quiver_grid_bgr(
+                            vy_grid=ty, vx_grid=tx,        # vy = ty (down), vx = tx (right)
+                            cell_px=cell_px,
+                            out_H=Hf, out_W=Wf,
+                            scale=pd.tau_quiver_scale,
+                            thickness=pd.tau_quiver_thickness,
+                            color=pd.tau_quiver_color,
+                            bg=pd.tau_quiver_bg,
+                            min_len=pd.tau_quiver_min,
+                        )
+                        disp.show("physics_shear", quiv_bgr)
+
                     vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
                     down["raw"] = (vy_ds, vx_ds)
+
 
                 # Output: make latest flows available to solvers (iFEM/physics/CNN)
                 self.latest_flows = {

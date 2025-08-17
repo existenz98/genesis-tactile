@@ -106,6 +106,44 @@ class OutputConfig:
     dir: str = "outputs"
     fps: float = 20.0             # writer fps (if not deriving from source)
 
+
+@dataclass
+class PhysicsDisplayConfig:
+    show_pressure_map: bool = True
+    show_tau_quiver: bool = True
+    # visualization tuning
+    p_vis_min: float = 0.0           # min value for colormap (0 for non-negative pressure)
+    p_vis_max: float = 0.0           # 0 => auto by 98th percentile
+    tau_quiver_scale: float = 10.0      # arrow length multiplier (in grid units)
+    tau_quiver_min: float = 0.6        # do not draw tiny shear arrows (< this magnitude, in same units as tau)
+    tau_quiver_color: tuple = (255,255,255)
+    tau_quiver_thickness: int = 1
+    tau_quiver_bg: str = "black"
+
+@dataclass
+class PhysicsConfig:
+    # Physical / calibration parameters
+    thickness_mm: float = 3.0          # gel thickness h
+    mm_per_px: float = 0.05            # image scale (set from calibration)
+    normal_gain: float = 1.0           # k_n, maps w -> pressure: p = normal_gain * w
+    shear_gain: float = 1.0            # b = kappa_s * G / h ; tau = shear_gain * u_hat + slope_gain * ∇w
+    slope_gain: float = 1.0            # c_slope * ∇w term; set >0 to enable slope correction
+
+    # Downsampling (from dense flow to coarse field for solving)
+    ds_block: int = 32                 # tile size in pixels
+    ds_pool: str = "mean"             # "median" | "mean" | "huber"
+    huber_sigma_px: float = 1.0        # robust scale (pixels) for huber pooling
+
+    # Pre-smoothing and derivative (work on the coarse grid)
+    smooth_sigma_cells: float = 0.8    # Gaussian sigma in "grid cells" before taking derivatives
+    min_flow_px: float = 0.2           # zero-out tiny flows (on dense field) before pooling
+
+    # Visualization helpers (optional fixed ranges)
+    vis_p_min: Optional[float] = 0.0  # pressure heatmap min (None => auto)
+    vis_p_max: Optional[float] = 1.5  # pressure heatmap max (None => auto)
+
+
+
 @dataclass
 class RuntimeConfig:
     # Source selection
@@ -115,6 +153,9 @@ class RuntimeConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     virtual: VirtualSourceConfig = field(default_factory=VirtualSourceConfig)
 
+    # Options
+    do_raw_flow: bool = True
+
     # Core modules
     preproc: PreprocConfig = field(default_factory=PreprocConfig)
     compensation_mode: CompensationMode = CompensationMode.BASELINE
@@ -122,9 +163,9 @@ class RuntimeConfig:
     unmix_mode: UnmixMode = UnmixMode.KMEANS
     flow: FlowConfig = field(default_factory=FlowConfig)
 
-    # Options
-    do_color_flow: bool = True
-    do_raw_flow: bool = True
+    # Physics solver
+    physics: PhysicsConfig = PhysicsConfig()
+    physics_display: PhysicsDisplayConfig = PhysicsDisplayConfig()
 
     # Output & display
     output: OutputConfig = field(default_factory=OutputConfig)

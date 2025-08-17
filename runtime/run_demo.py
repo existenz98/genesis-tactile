@@ -9,7 +9,6 @@ Usage examples, run python from parent of runtime/
 python -m runtime.run_demo \
   --source video \
   --input data/camera_frames.avi \
-  --color_flow \
   --write_videos \
   --out outputs \
   --flow dis
@@ -20,14 +19,12 @@ python -m runtime.run_demo \
   --source folder \
   --input /path/to/frames_folder \
   --fps 30 \
-  --color_flow \
   --write_videos
 
 3. Real camera (usb index 0) as input, but not writing output to file
 python -m runtime.run_demo \
   --source camera \
   --device 0 \
-  --color_flow
 
 4. Optical flow using raw image (no compensation, no unmix r,g,b)
 python -m runtime.run_demo \
@@ -39,7 +36,7 @@ python -m runtime.run_demo \
   --raw_flow
 
 5. Downsampling
-python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5 --color_flow
+python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5
 
 """
 
@@ -68,7 +65,6 @@ def parse_args():
     ap.add_argument("--compensation", choices=[m.value for m in CompensationMode], default=CompensationMode.BASELINE.value)
     ap.add_argument("--unmix", choices=[m.value for m in UnmixMode], default=UnmixMode.KMEANS.value)
     ap.add_argument("--flow", choices=[m.value for m in FlowMethod], default=FlowMethod.DIS.value)
-    ap.add_argument("--color_flow", action="store_true", help="Enable per-color flow")
     ap.add_argument("--raw_flow", action="store_true", help="Enable raw flow")
     ap.add_argument("--write_videos", action="store_true", help="Write flow videos to outputs/")
     ap.add_argument("--out", default="outputs", help="Output directory")
@@ -102,8 +98,6 @@ def cli_overlay(cfg, args):
         cfg.flow.method = FlowMethod(args.flow)
 
     # tri-state booleans
-    if args.color_flow is not None:
-        cfg.do_color_flow = args.color_flow
     if args.raw_flow is not None:
         cfg.do_raw_flow = args.raw_flow
     if args.display_enable is not None:
@@ -139,7 +133,6 @@ def main():
       compensation_mode=CompensationMode(a.compensation),
       unmix_mode=UnmixMode(a.unmix),
       flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
-      do_color_flow=a.color_flow,
       do_raw_flow=a.raw_flow,
       output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),
       display=DisplayConfig(enable=not a.no_display),

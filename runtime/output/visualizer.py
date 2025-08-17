@@ -15,6 +15,61 @@ def flow_to_color_bgr(vy: np.ndarray, vx: np.ndarray, max_flow: float = None) ->
     bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     return bgr
 
+def scalar_to_color_bgr(
+    field: np.ndarray,
+    vmin: float = None,
+    vmax: float = None,
+    colormap: int = cv2.COLORMAP_TURBO
+    ) -> np.ndarray:
+    """
+    Normalize a scalar field to [0,255] and apply a colormap.
+    """
+    f = field.astype(np.float32)
+    if vmin is None:
+        vmin = np.percentile(f, 2.0)
+    if vmax is None:
+        vmax = np.percentile(f, 98.0)
+    if vmax <= vmin + 1e-12:
+        vmax = vmin + 1.0
+    g = np.clip((f - vmin) / (vmax - vmin), 0.0, 1.0)
+    u8 = (g * 255.0 + 0.5).astype(np.uint8)
+    return cv2.applyColorMap(u8, colormap)
+
+def draw_quiver_grid_bgr(
+    vy_grid: np.ndarray,
+    vx_grid: np.ndarray,
+    cell_px: int,
+    out_H: int,
+    out_W: int,
+    scale: float = 1.0,
+    thickness: int = 1,
+    color=(255,255,255),
+    bg: str = "black",
+    min_len: float = 0.6
+    ) -> np.ndarray:
+    """
+    Draw a quiver given a coarse grid (no extra pooling).
+    vy_grid, vx_grid shape: (Hc, Wc).
+    cell_px: stride in pixels between neighboring grid nodes on the full-res canvas.
+    """
+    img = np.full((out_H, out_W, 3), 255, np.uint8) if bg == "white" else np.zeros((out_H, out_W, 3), np.uint8)
+    Hc, Wc = vy_grid.shape
+    ys = (np.arange(Hc) * cell_px + 0.5 * cell_px).astype(np.float32)
+    xs = (np.arange(Wc) * cell_px + 0.5 * cell_px).astype(np.float32)
+    for iy, cy in enumerate(ys):
+        if cy >= out_H: continue
+        for ix, cx in enumerate(xs):
+            if cx >= out_W: continue
+            dy = float(vy_grid[iy, ix]) * scale
+            dx = float(vx_grid[iy, ix]) * scale
+            if (dx*dx + dy*dy) < (min_len * min_len):
+                continue
+            x0, y0 = int(round(cx)), int(round(cy))
+            x1 = int(round(cx + dx))
+            y1 = int(round(cy + dy))  # image coords (down = +)
+            cv2.arrowedLine(img, (x0, y0), (x1, y1), color, thickness, tipLength=0.35)
+    return img
+
 def flow_block_reduce(vy: np.ndarray, vx: np.ndarray, block: int = 16, pool: str = "median"):
     """
     Spatial pooling of flow vectors on block tiles; returns vy_ds, vx_ds, block.
