@@ -16,6 +16,7 @@ __pycache__/
 data/output/
 data/cache/
 data/raw/
+dataset/*
 *.npz
 *.npy
 *.png

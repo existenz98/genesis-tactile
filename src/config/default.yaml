@@ -1,7 +1,8 @@
 
 geometry:
   size_mm: [30.0, 20.0, 4.0]    # Gel layer's dimension [Lx, Ly, Lz] in mm.
-  mesh_div: [60, 40, 16]        # FE grid divisions
+  #mesh_div: [60, 40, 16]        # FE grid divisions, more acurate
+  mesh_div: [30, 20, 8]        # FE grid divisions, faster
 
 material:
   poisson: 0.49

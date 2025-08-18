@@ -121,7 +121,31 @@ python src/scripts/run_ifem_from_u.py \
 python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
 ```
 
-### End-to-end validation:
+### Generate Dataset for training
+
+Single sample test:
+
+```bash
+python src/dataset/gen_sample.py     --outdir dataset/val/00000002     --material src/config/default.yaml     --renderer src/config/renderer.yaml  \
+    --mode torque  \
+    --n_balls 1  \
+    --seed 42
+```
+
+Generate dataset (many samples, in parallel):
+
+```bash
+python src/dataset/gen_dataset.py \
+    --root dataset/train \
+    --material src/config/default.yaml \
+    --renderer src/config/renderer.yaml \
+    --n 1000 --jobs 8 \
+    --mode_mix 0.25,0.25,0.25,0.25 \
+    --n_balls_min 1 --n_balls_max 2
+```
+
+
+### End-to-end validation (**Not Implemented Yet**):
 
 ```bash
 python src/scripts/run_end2end.py --preset torque --noise 0.01 --report data/output/report.json

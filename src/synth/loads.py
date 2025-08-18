@@ -55,7 +55,7 @@ def _gaussian(X: np.ndarray, Y: np.ndarray, cx: float, cy: float, sigma_mm: floa
     g /= (2.0 * np.pi * sigma_mm * sigma_mm)  # integrate to ~1 over R^2 (continuous)
     return g
 
-def pressure_patch(
+def gaussian_pressure_patch(
     X_mm: np.ndarray,
     Y_mm: np.ndarray,
     cx_mm: float,
@@ -75,7 +75,7 @@ def pressure_patch(
     fy = np.zeros_like(fz)
     return fx, fy, fz
 
-def shear_patch(
+def gaussian_shear_patch(
     X_mm: np.ndarray,
     Y_mm: np.ndarray,
     cx_mm: float,
@@ -142,27 +142,38 @@ def torque_patch(
 # make the normal press look like a rigid sphere on a soft half-space (instead of Gaussian)
 # map the ball radius to the footprint:
 def hertz_normal_patch(
-    X_mm, Y_mm, cx_mm, cy_mm, R_mm: float, delta_mm: float, p0_mpa: Optional[float] = None
-):
+    X_mm: np.ndarray,
+    Y_mm: np.ndarray,
+    cx_mm: float,
+    cy_mm: float,
+    R_mm: float,
+    indent_mm: float,
+    p0_mpa: Optional[float] = None,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """
-    Approximate Hertz contact: pressure p(r) = p0 * sqrt(1 - (r/a)^2) for r<=a, else 0,
-    where a = sqrt(R*delta). You can set p0 (MPa) explicitly, or normalize so max=p0.
-    """
-    rx, ry = X_mm - cx_mm, Y_mm - cy_mm
-    r = np.hypot(rx, ry)
-    a = np.sqrt(max(R_mm * delta_mm, 1e-9))
-    inside = r <= a
-    p = np.zeros_like(r)
-    p[inside] = np.sqrt(1.0 - (r[inside] / a) ** 2)
-    if p0_mpa is not None:
-        p *= p0_mpa
-    else:
-        p /= (p.max() + 1e-12)  # normalize peak to 1
-    fx = np.zeros_like(p)
-    fy = np.zeros_like(p)
-    fz = p  # MPa
-    return fx, fy, fz, a
+    Hertz-like normal pressure patch for a rigid sphere of radius R indenting δ.
+    p(r) ∝ sqrt(1 - (r/a)^2) for r <= a, else 0, with a = sqrt(R*δ).
 
+    If p0_mpa is None: normalize max to 1 MPa (caller rescales); otherwise max = p0_mpa.
+    Returns (fx, fy, fz, a_mm).
+    """
+
+    rx = X_mm - cx_mm
+    ry = Y_mm - cy_mm
+    r = np.hypot(rx, ry)
+    a = float(np.sqrt(max(R_mm * indent_mm, 1e-12)))
+    fz = np.zeros_like(r)
+    if a > 0:
+        inside = r <= a
+        fz[inside] = np.sqrt(1.0 - (r[inside] / a) ** 2)
+        if p0_mpa is not None:
+            fz *= p0_mpa
+        else:
+            # normalize to 1 MPa peak for convenience
+            fz /= (fz.max() + 1e-12)
+    fx = np.zeros_like(fz)
+    fy = np.zeros_like(fz)
+    return fx, fy, fz, a
 
 
 def combine_fields(*fields: Tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -214,16 +225,16 @@ def build_force_field(
     cy = Ly_mm / 2.0 if cy_mm is None else cy_mm
 
     if preset == "pressure":
-        fx, fy, fz = pressure_patch(X, Y, cx, cy, fz_peak_mpa, sigma_mm)
+        fx, fy, fz = gaussian_pressure_patch(X, Y, cx, cy, fz_peak_mpa, sigma_mm)
     #elif preset == "hertz":
-    #    fx, fy, fz, a = hertz_normal_patch(X, Y, cx, cy, R_mm=ball_radius_mm, delta_mm=indent_mm, p0_mpa=fz_peak_mpa)
+    #    fx, fy, fz, a = hertz_normal_patch(X, Y, cx, cy, R_mm=ball_radius_mm, indent_mm=indent_mm, p0_mpa=fz_peak_mpa)
     elif preset == "shear":
-        fx, fy, fz = shear_patch(X, Y, cx, cy, tau_shear_mpa, sigma_mm, shear_dir_deg)
+        fx, fy, fz = gaussian_shear_patch(X, Y, cx, cy, tau_shear_mpa, sigma_mm, shear_dir_deg)
     elif preset == "torque":
         fx, fy, fz = torque_patch(X, Y, cx, cy, tau_torque_mpa, sigma_mm, inner_mm=torque_inner_mm)
     elif preset == "combo":
-        f1 = pressure_patch(X, Y, cx, cy, fz_peak_mpa, sigma_mm)
-        f2 = shear_patch(X, Y, cx, cy, tau_shear_mpa, sigma_mm, shear_dir_deg)
+        f1 = gaussian_pressure_patch(X, Y, cx, cy, fz_peak_mpa, sigma_mm)
+        f2 = gaussian_shear_patch(X, Y, cx, cy, tau_shear_mpa, sigma_mm, shear_dir_deg)
         f3 = torque_patch(X, Y, cx, cy, 0.5 * tau_torque_mpa, 1.2 * sigma_mm, inner_mm=torque_inner_mm)
         fx, fy, fz = combine_fields(f1, f2, f3)
     else:
@@ -249,3 +260,68 @@ def build_force_field(
     )
     return ForceField(X, Y, fx, fy, fz, meta)
 
+
+
+
+def gaussian_combo_patch(
+    X_mm: np.ndarray,
+    Y_mm: np.ndarray,
+    cx_mm: float,
+    cy_mm: float,
+    sigma_mm: float,
+    fz_peak_mpa: float = 0.0,
+    tau_shear_mpa: float = 0.0,
+    shear_dir_deg: float = 0.0,
+    tau_torque_mpa: float = 0.0,
+    torque_inner_mm: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    One object -> (fx, fy, fz) by summing Gaussian normal + shear + torque,
+    all centered at (cx, cy) with the same sigma footprint.
+    """
+    fxN, fyN, fzN = (np.zeros_like(X_mm),) * 3
+    fxS, fyS, fzS = (np.zeros_like(X_mm),) * 3
+    fxT, fyT, fzT = (np.zeros_like(X_mm),) * 3
+
+    if fz_peak_mpa > 0:
+        _, _, fzN = gaussian_pressure_patch(X_mm, Y_mm, cx_mm, cy_mm, fz_peak_mpa, sigma_mm)
+    if tau_shear_mpa > 0:
+        fxS, fyS, _ = gaussian_shear_patch(X_mm, Y_mm, cx_mm, cy_mm, tau_shear_mpa, sigma_mm, shear_dir_deg)
+    if tau_torque_mpa > 0:
+        fxT, fyT, _ = torque_patch(X_mm, Y_mm, cx_mm, cy_mm, tau_torque_mpa, sigma_mm, inner_mm=torque_inner_mm)
+
+    fx = fxN + fxS + fxT
+    fy = fyN + fyS + fyT
+    fz = fzN + fzS + fzT
+    return fx, fy, fz
+
+def multi_gaussian_combo(
+    X_mm: np.ndarray,
+    Y_mm: np.ndarray,
+    objects: list[dict],
+    torque_inner_mm: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Sum contributions from multiple objects (each dict has keys shown below):
+      {
+        "cx_mm":..., "cy_mm":..., "sigma_mm":...,
+        "fz_peak_mpa":..., "tau_shear_mpa":..., "shear_dir_deg":...,
+        "tau_torque_mpa":...
+      }
+    """
+    fx_t = np.zeros_like(X_mm)
+    fy_t = np.zeros_like(X_mm)
+    fz_t = np.zeros_like(X_mm)
+    for obj in objects:
+        fx, fy, fz = gaussian_combo_patch(
+            X_mm, Y_mm,
+            cx_mm=float(obj["cx_mm"]), cy_mm=float(obj["cy_mm"]),
+            sigma_mm=float(obj["sigma_mm"]),
+            fz_peak_mpa=float(obj.get("fz_peak_mpa", 0.0)),
+            tau_shear_mpa=float(obj.get("tau_shear_mpa", 0.0)),
+            shear_dir_deg=float(obj.get("shear_dir_deg", 0.0)),
+            tau_torque_mpa=float(obj.get("tau_torque_mpa", 0.0)),
+            torque_inner_mm=torque_inner_mm,
+        )
+        fx_t += fx; fy_t += fy; fz_t += fz
+    return fx_t, fy_t, fz_t

@@ -88,6 +88,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sample_Nx", type=int, default=60, help="Sampling grid on top-surface (x).")
     p.add_argument("--sample_Ny", type=int, default=40, help="Sampling grid on top-surface (y).")
     p.add_argument("--save_top_npz", type=Path, default=None, help="Optional NPZ to save sampled top-surface u.")
+    p.add_argument("--save_dofs_npz", type=Path, default=None, help="Optional NPZ to save full DOF vector (for later rendering/inversion).")
     p.add_argument("--ksp_monitor", action="store_true", help="Print KSP residuals each iteration.")
     p.add_argument("--pc", type=str, default="lu", help="PETSc PC type (lu, hypre, ilu, jacobi...).")
     p.add_argument("--ksp", type=str, default="preonly", help="PETSc KSP type (preonly, cg, gmres...).")
@@ -210,6 +211,17 @@ def main():
             )
             print("Saved sampled top-surface displacement:", args.save_top_npz)
 
+        # save DOFs for round-trip use (renderer / iFEM)
+        if args.save_dofs_npz:
+            np.savez_compressed(
+                args.save_dofs_npz,
+                dofs=uh.x.array.copy(),
+                family="Lagrange",
+                degree=1,
+                value_shape=(geom.mesh.geometry.dim,),
+                note="Assign to Function(V) on the same mesh."
+            )
+            print("Saved DOFs:", args.save_dofs_npz)
 
 if __name__ == "__main__":
     main()
