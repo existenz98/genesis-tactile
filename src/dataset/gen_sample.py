@@ -13,7 +13,8 @@ python src/dataset/gen_sample.py \
     --material src/config/default.yaml \
     --renderer src/config/renderer.yaml \
     --mode pressure --gauss_sigma_min_mm 1.0 --gauss_sigma_max_mm 4.0   --fz_peak_min_mpa 0.05 --fz_peak_max_mpa 0.15   \
-    --n_balls 2 --seed 123 \
+    --n_balls 2   --seed 123 \
+    --save_flow \
     --debug_show
 
 python src/dataset/gen_sample.py \
@@ -21,22 +22,23 @@ python src/dataset/gen_sample.py \
     --material src/config/default.yaml \
     --renderer src/config/renderer.yaml \
     --mode shear  \
-    --n_balls 1  \
-    --seed 41 \
+    --n_balls 1  --seed 41 \
+    --save_flow \
     --debug_show
 
 python src/dataset/gen_sample.py  \
     --outdir dataset/val/000002     --material src/config/default.yaml     --renderer src/config/renderer.yaml  \
     --mode torque  \
-    --n_balls 1  \
-    --seed 42
+    --n_balls 1  --seed 42 \
+    --save_flow
 
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000002 \
     --material src/config/default.yaml \
     --renderer src/config/renderer.yaml \
     --mode combo \
-    --n_balls 2 --seed 100
+    --n_balls 2 --seed 100 \
+    --save_flow
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Reuse our modules
 from synth.loads import make_surface_grid, gaussian_shear_patch, torque_patch, make_surface_grid, multi_gaussian_combo
 from viz.plots2d import plot_force_maps
+from viz.quiver import draw_quiver_bgr
 
 def _safe_center_gauss(rng, L: float, sigma: float, factor: float, edge_min: float) -> float:
     """
@@ -139,11 +142,14 @@ def parse_args():
     p.add_argument("--sigma_margin_factor", type=float, default=2.5, help="Keep centers ≥ factor*sigma from edges (≈2.5σ leaves ~99% mass inside).")
 
     p.add_argument("--n_balls", type=int, default=1)
-    p.add_argument("--Lx_mm", type=float, default=30.0)
-    p.add_argument("--Ly_mm", type=float, default=20.0)
-    p.add_argument("--Nx", type=int, default=60)
-    p.add_argument("--Ny", type=int, default=40)
+    p.add_argument("--Lx_mm", type=float, default=40.0)
+    p.add_argument("--Ly_mm", type=float, default=30.0)
+    p.add_argument("--Nx", type=int, default=80)
+    p.add_argument("--Ny", type=int, default=60)
     p.add_argument("--edge_margin_mm", type=float, default=2.0)
+
+    p.add_argument("--flow_method", type=str, default="dis", choices=["farneback", "dis", "tvl1"], help="Optical flow method.")
+    p.add_argument("--save_flow", action="store_true", help="Compute and save optical flow from I0->I1.")
 
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--debug_show", action="store_true")
@@ -171,7 +177,7 @@ def main():
     # show debug window
     if args.debug_show:
         img_force = cv2.imread(str((args.outdir / "force_preview.fz.png").resolve()))
-        cv2.imshow("force tz heatmap", img_force); cv2.waitKey(0)
+        cv2.imshow("force tz heatmap", img_force)
 
     # 3) forward FEM (call script in a subprocess, good isolation/MPI safety)
     xdmf = args.outdir / "u.xdmf"
@@ -195,7 +201,7 @@ def main():
 
     if args.debug_show:
         img_disp = cv2.imread(str((args.outdir / "disp_top.uz.png").resolve()))
-        cv2.imshow("top uz heatmap", img_disp); cv2.waitKey(1)
+        cv2.imshow("top uz heatmap", img_disp)
 
     # 4) render Camera observation images, I0 (undeformed) and I1 (deformed)
     I0 = args.outdir / "I0.png"
@@ -230,9 +236,49 @@ def main():
 
     if args.debug_show:
         img_cam = cv2.imread(str(I1.resolve()))
-        cv2.imshow("camera I1", img_cam); cv2.waitKey(1)
+        cv2.imshow("camera I1", img_cam)
 
-    # 5) metadata, save as .json in the same folder
+    # 5) save optical flow
+    from synth.optical_flow import FlowConfig, FlowMethod, to_gray_f32_bgr, compute_flow, flow_to_bgr
+    if args.save_flow:
+        I0p = cv2.imread(str(I0), cv2.IMREAD_COLOR)
+        I1p = cv2.imread(str(I1), cv2.IMREAD_COLOR)
+        if I0p is None or I1p is None:
+            raise RuntimeError("Failed to read I0/I1 for flow.")
+
+        g0 = to_gray_f32_bgr(I0p)
+        g1 = to_gray_f32_bgr(I1p)
+        cfg_flow = FlowConfig(method=FlowMethod(args.flow_method))
+        vx, vy = compute_flow(g0, g1, cfg_flow)   # from I0 -> I1
+
+        # Save numeric flow
+        np.savez_compressed(args.outdir / "flow_f32.npz", vx=vx, vy=vy, note="flow from I0 to I1")
+
+        # Save a visualization
+        vis = flow_to_bgr(vx, vy, clip_mag=None)
+        cv2.imwrite(str(args.outdir / "flow_vis.png"), vis)
+
+        # Quiver render (use sensible defaults; tune as you like)
+        quiv = draw_quiver_bgr(
+            vy, vx,
+            block=16,        # stride between arrows (px)
+            pool=1,          # no pooling (or set e.g. 5)
+            scale=4.0,       # arrow length gain
+            thickness=1,
+            color=(0, 255, 255),
+            bg=(0, 0, 0),    # or pick avg of I0 if preferred
+            min_px=0.5,
+            draw_centers=False,
+            center_color=(255, 255, 255),
+        )
+        cv2.imwrite(str(args.outdir / "flow_quiver.png"), quiv)
+
+        if args.debug_show:
+            cv2.imshow("flow vis", vis)
+            cv2.imshow("flow quiver", quiv)
+
+
+    # 6) metadata, save as .json in the same folder
     meta = dict(
         seed=int(args.seed),
         mode=str(args.mode),

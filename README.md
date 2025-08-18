@@ -126,10 +126,14 @@ python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   
 Single sample test:
 
 ```bash
-python src/dataset/gen_sample.py     --outdir dataset/val/00000002     --material src/config/default.yaml     --renderer src/config/renderer.yaml  \
-    --mode torque  \
-    --n_balls 1  \
-    --seed 42
+python src/dataset/gen_sample.py \
+    --outdir dataset/val/000001 \
+    --material src/config/default.yaml \
+    --renderer src/config/renderer.yaml \
+    --mode shear  \
+    --n_balls 1  --seed 41 \
+    --save_flow \
+    --debug_show
 ```
 
 Generate dataset (many samples, in parallel):
