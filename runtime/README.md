@@ -49,7 +49,7 @@ Video input, per-color flow (DIS), write videos
 ```bash
 python -m runtime.run_demo \
   --source video \
-  --input data/demo.mp4 \
+  --input data/raw/camera_frames.avi \
   --color_flow \
   --write_videos \
   --out outputs \
@@ -61,7 +61,7 @@ Folder of frames at 30 FPS
 ```bash
 python -m runtime.run_demo \
   --source folder \
-  --input data/frames \
+  --input data/raw/frames \
   --fps 30 \
   --color_flow \
   --write_videos
@@ -82,7 +82,7 @@ Raw gray flow only (no unmix/compensation)
 ```bash
 python -m runtime.run_demo \
   --source video \
-  --input data/demo.mp4 \
+  --input data/raw/camera_frames.avi \
   --compensation skip \
   --unmix skip \
   --raw_flow \

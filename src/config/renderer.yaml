@@ -5,7 +5,7 @@ camera:
   z_cam_mm: 20.0     # camera center is at z=-20 mm (looking toward +z)
 
 # Visible area in mm (maps to full image at z_ref_mm)
-view_mm: [30.0, 20.0]
+view_mm: [40.0, 30.0]
 
 # Background color (BGR, 0..255)
 background_bgr: [60, 60, 60]   # a mid-gray background

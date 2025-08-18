@@ -29,16 +29,16 @@ def parse_args():
     p.add_argument("--material", type=Path, required=True)
     p.add_argument("--renderer", type=Path, required=True)
     p.add_argument("--n", type=int, required=True)
-    p.add_argument("--jobs", type=int, default=4)
+    p.add_argument("--jobs", type=int, default=8)
     p.add_argument("--start_id", type=int, default=0)
     p.add_argument("--mode_mix", type=str, default="0.25,0.25,0.25,0.25",
                    help="probabilities for pressure,shear,torque,combo")
     p.add_argument("--n_balls_min", type=int, default=1)
     p.add_argument("--n_balls_max", type=int, default=2)
-    p.add_argument("--Lx_mm", type=float, default=30.0)
-    p.add_argument("--Ly_mm", type=float, default=20.0)
-    p.add_argument("--Nx", type=int, default=60)
-    p.add_argument("--Ny", type=int, default=40)
+    p.add_argument("--Lx_mm", type=float, default=40.0)
+    p.add_argument("--Ly_mm", type=float, default=30.0)
+    p.add_argument("--Nx", type=int, default=80)
+    p.add_argument("--Ny", type=int, default=60)
     p.add_argument("--debug_show", action="store_true")
     return p.parse_args()
 
@@ -78,6 +78,7 @@ def main():
             "--Nx", str(args.Nx),
             "--Ny", str(args.Ny),
             "--seed", str(seed),
+            "--save_flow",
         ]
         if args.debug_show:
             cmd.append("--debug_show")

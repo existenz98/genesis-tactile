@@ -60,13 +60,13 @@ Each task is a directly runnable src/scripts/
 Pressure (normal forcee)
 
 ```bash
-python src/scripts/generate_synth_force.py --preset pressure --fz_peak_mpa 0.12 --sigma_mm 3.5   --Lx_mm 30 --Ly_mm 20 --Nx 60 --Ny 40   --out data/input/force_pressure.npz   --preview_prefix data/input/force_pressure
+python src/scripts/generate_synth_force.py --preset pressure --fz_peak_mpa 0.12 --sigma_mm 3.5   --Lx_mm 40 --Ly_mm 30 --Nx 80 --Ny 60   --out data/input/force_pressure.npz   --preview_prefix data/input/force_pressure
 ```
 
 Sheer (x,y)
 
 ```bash
-python src/scripts/generate_synth_force.py --preset shear --Lx_mm 30 --Ly_mm 20 --Nx 60 --Ny 40 --cx_mm 15 --cy_mm 10 --sigma_mm 3.0 --tau_shear_mpa 0.05 --shear_dir_deg 45 --out data/input/force_shear.npz --preview_prefix data/input/force_shear
+python src/scripts/generate_synth_force.py --preset shear --Lx_mm 40 --Ly_mm 30 --Nx 80 --Ny 60 --cx_mm 15 --cy_mm 10 --sigma_mm 3.0 --tau_shear_mpa 0.05 --shear_dir_deg 45 --out data/input/force_shear.npz --preview_prefix data/input/force_shear
 ```
 
 Torque
@@ -80,10 +80,10 @@ Combined (Pressure, Shear, Torque)
 ```bash
 python src/scripts/generate_synth_force.py \
   --preset combo \
-  --Lx_mm 30 \
-  --Ly_mm 20 \
-  --Nx 60 \
-  --Ny 40 \
+  --Lx_mm 40 \
+  --Ly_mm 30 \
+  --Nx 80 \
+  --Ny 60 \
   --cx_mm 15 \
   --cy_mm 10 \
   --sigma_mm 3.0 \
@@ -101,7 +101,7 @@ this will make: A Gaussian normal patch (fz_peak_mpa) + A shear patch (tau_shear
 ### Forward FEM (force → displacement):
 
 ```bash
-python src/scripts/run_forward.py --force data/input/force_combo.npz   --config src/config/default.yaml   --xdmf data/output/u.xdmf   --viz_prefix data/output/disp_top   --sample_Nx 60 --sample_Ny 40  --ksp cg --pc gamg --ksp_monitor
+python src/scripts/run_forward.py --force data/input/force_combo.npz   --config src/config/default.yaml   --xdmf data/output/u.xdmf   --viz_prefix data/output/disp_top   --sample_Nx 80 --sample_Ny 60  --ksp cg --pc gamg --ksp_monitor
 ```
 
 ### Inverse (displacement/observations → force):
@@ -111,7 +111,7 @@ python src/scripts/run_ifem_from_u.py \
   --mesh data/output/u.xdmf \
   --dofs data/output/u.dofs.npz \
   --config src/config/default.yaml \
-  --Nx 60 --Ny 40 \
+  --Nx 80 --Ny 60 \
   --pc jacobi --ksp cg --ksp_rtol 1e-7 --ksp_atol 0 --ksp_monitor
 ```
 
