@@ -29,7 +29,7 @@ python -m runtime.run_demo \
 4. Optical flow using raw image (no compensation, no unmix r,g,b)
 python -m runtime.run_demo \
   --source video \
-  --input /path/to/video.mp4 \
+  --input data/camera_frames.avi \
   --compensation skip \
   --flow dis \
   --unmix skip \
@@ -155,7 +155,7 @@ def main():
 
     # Start the 3D viewer on the MAIN thread (blocking UI loop)
     if cfg.vis3d.enable:
-        viewer = Vis3DLive(bus=bus, topic="physics", cfg=cfg.vis3d, normal_gain=cfg.physics.normal_gain)
+        viewer = Vis3DLive(bus=bus, topic=cfg.vis3d.topic, cfg=cfg.vis3d, normal_gain=cfg.physics.normal_gain)
         print("viewer.start_blocking() >>>")
         viewer.start_blocking()
         print("viewer.start_blocking() <<<")

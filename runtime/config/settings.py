@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
+
 
 class SourceMode(str, Enum):
     CAMERA = "camera"
@@ -103,8 +104,9 @@ class DisplayConfig:
 
 @dataclass
 class Vis3DConfig:
-    enable: bool = True              # enable live 3D window
-
+    enable: bool = True             # enable live 3D window
+    topic: str = "physics"          # which bus topic to visualize: "physics" or "cnn"
+    
     # surface (pressure)
     show_height: bool = True        # extrude surface z by w ≈ p / normal_gain
     height_gain: float = 1.0         # extra gain applied to w if show_height = True
@@ -175,6 +177,24 @@ class PhysicsConfig:
     vis_p_max: Optional[float] = 1.5  # pressure heatmap max (None => auto)
 
 
+@dataclass
+class CnnConfig:
+    enable: bool = True
+    # Paths relative to project root (or absolute)
+    model_cfg: str = "src/nn/train_unet.yaml"
+    checkpoint: str = "outputs/ckpt/best.pth"
+    device: str = "cuda:0"         # or "cpu"
+    use_half: bool = False         # fp16 inference (CUDA only)
+    input_is_flow: bool = True     # this model expects (vx, vy)
+    # If None, use flip_y from nn config; otherwise override here.
+    flip_y_override: Optional[bool] = None
+
+    # Force a specific model input size; if None use nn cfg.dataset.resize_to
+    #force_input_size: Optional[Tuple[int, int]] = None  # (W, H)
+    force_input_size: Optional[Tuple[int, int]] = (80, 60)  # resize input to this res
+    out_grid_wh: Optional[Tuple[int, int]] = (20, 15)       # resize output to this res
+
+
 
 @dataclass
 class RuntimeConfig:
@@ -198,6 +218,11 @@ class RuntimeConfig:
     # Physics solver
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     physics_display: PhysicsDisplayConfig = field(default_factory=PhysicsDisplayConfig)
+
+    # CNN solver
+    cnn: CnnConfig = field(default_factory=CnnConfig)
+
+    # 3D Visualization
     vis3d: Vis3DConfig = field(default_factory=Vis3DConfig)
 
 
@@ -208,3 +233,11 @@ class RuntimeConfig:
     # Misc
     downscale: float = 2.0
     max_frames: Optional[int] = None   # stop after N frames if set
+
+
+    def __post_init__(self):
+        # run after basic field initialized
+        if isinstance(self.cnn, dict):
+            self.cnn = CnnConfig(**self.cnn)
+        if isinstance(self.vis3d, dict):
+            self.vis3d = Vis3DConfig(**self.vis3d)

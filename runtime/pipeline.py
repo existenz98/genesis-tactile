@@ -17,6 +17,7 @@ from .core.frame_bus import FrameBus
 from .output.vis3d_pyvista import Vis3DLive
 from .algorithms.physics_solver import PhysicsSolver
 from .config.settings import PhysicsConfig
+from .algorithms.cnn_model import CnnForceSolver
 
 
 def _resize_bgr(img: np.ndarray, scale: float) -> np.ndarray:
@@ -81,9 +82,15 @@ class RuntimePipeline:
         if cfg.unmix_mode != UnmixMode.SKIP:
             unmix = UnmixModel(cfg.unmix)
 
-        # Solver
+        # Physics Solver
         phys_cfg = self.cfg.physics
-        ps = PhysicsSolver(phys_cfg)
+        physics_solver = PhysicsSolver(phys_cfg)
+
+        # CNN Solver
+        cnn_solver = None
+        cnn_cfg = self.cfg.cnn
+        if self.cfg.cnn.enable:
+            cnn_solver = CnnForceSolver(self.cfg.cnn)        
 
         # Stream
         count = 0
@@ -206,8 +213,14 @@ class RuntimePipeline:
                         disp.show("flow_quiver_raw", quiv_bgr)
 
                     # Solver
-                    #print("pipeline - phys solver")
-                    phys = ps.solve_from_dense(vy, vx)  # vy/vx are in pixels
+                    phys = None
+                    #phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
+                    #print(f"physics solver result = {phys['p'].shape}")
+
+                    if self.cfg.cnn.enable and cnn_solver is not None:
+                        phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
+                        #print(f"cnn solver result = {phys['p'].shape}")
+
                     self.latest_physics = phys  # expose to downstream (SDK / Visualization)
 
                     # 2D Visualization
@@ -219,8 +232,8 @@ class RuntimePipeline:
                         p = phys["p"]
                         p_bgr = scalar_to_color_bgr(
                             p,
-                            vmin=(ps.cfg.vis_p_min if ps.cfg.vis_p_min is not None else None),
-                            vmax=(ps.cfg.vis_p_max if ps.cfg.vis_p_max is not None else None),
+                            vmin=(physics_solver.cfg.vis_p_min if physics_solver.cfg.vis_p_min is not None else None),
+                            vmax=(physics_solver.cfg.vis_p_max if physics_solver.cfg.vis_p_max is not None else None),
                         )
                         # Resize to full frame for easy comparison
                         p_bgr = cv2.resize(p_bgr, (Wf, Hf), interpolation=cv2.INTER_CUBIC)
