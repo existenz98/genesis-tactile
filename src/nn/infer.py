@@ -109,6 +109,7 @@ def main():
                 X_mm, Y_mm = np.meshgrid(xs, ys)
 
             _ = plot_force_maps(X_mm, Y_mm, tx, ty, tz,
+                                #fz_clim=(0.0, 1.0),
                                 out_prefix=savedir / "pred",
                                 title="prediction")
 

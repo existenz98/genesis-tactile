@@ -7,14 +7,17 @@ dataset:
   stats_json: dataset/train/stats.json
 
 scaling:
-  flow_scale: 2.5        # fill from stats.json["flow_scale_p95"]
+  #flow_scale: 2.5        # fill from stats.json["flow_scale_p95"]
+  flow_scale: 1.1367523670196533
   flow_mean: 0.0
   target_mode: "linear"  # or "log"
-  force_scale: [0.12, 0.05, 0.05]  # fill from stats.json["force_scale_p99"]
+  #force_scale: [0.12, 0.05, 0.05]  # fill from stats.json["force_scale_p99"]
+  force_scale: [0.08487852352479054, 0.029743597761967253, 0.029924533722176964]  # fill from stats.json["force_scale_p99"]
   log_alpha:  [0.1, 0.05, 0.05]    # fill from stats.json["log_alpha_p10"]
 
 augment:
-  enabled: true
+  #enabled: true
+  enabled: false
   awgn_std_min: 0.0
   awgn_std_max: 0.15
   bias_lf_amp_min: 0.0
@@ -39,12 +42,18 @@ model:
 
 loss:
   mse: 1.0
-  rel_l1: 0.2
-  tv: 0.0
-  nonneg_tz: 0.1
-  friction_cone_weight: 0.1
-  friction_mu: 0.6
+  #rel_l1: 0.2
+  rel_l1: 0.0
   rel_epsilon: 1.0e-3
+  tv: 0.0
+
+  #nonneg_tz: 0.1
+  #friction_cone_weight: 0.1
+  #friction_mu: 0.6
+
+  nonneg_tz: 0.0
+  friction_cone_weight: 0.0
+  friction_mu: 0.0
 
 train:
   epochs: 100

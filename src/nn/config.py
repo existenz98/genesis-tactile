@@ -14,6 +14,8 @@ class DatasetCfg:
     force_file: str = "force_top.npz"      # tx_mpa, ty_mpa, tz_mpa
     resize_to: Optional[List[int]] = None  # [W, H]  (normally dataset is of resolution [80,60])
     stats_json: str = "dataset/stats.json" # Data statistics, computed by compute_dataset_stats.py
+    flip_y: bool = True                    # need to flip flow observation because camera view from bottom,
+                                           # but force is viewed from the top
 
 @dataclass
 class ScalingCfg:

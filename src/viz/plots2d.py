@@ -22,19 +22,24 @@ def plot_force_maps(
     title: Optional[str] = None,
     cmap: str = "viridis",
     quiver_stride: int = 3,
+    fz_clim: Optional[Tuple[float, float]] = None,
     dpi: int = 180,
 ) -> Tuple[Path, Path]:
     """
     Save:
       - heatmap of fz (MPa)
       - quiver of (fx, fy) overlaid on |fz| background
+    Parameters
+    ----------------
+    fz_clim : optional (vmin, vmax) tuple to fix the display range of |fz|.
+              If None, auto-scales.
     """
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
 
     # Sanity check, verify magnitudes.  should align with --tau_shear_mpa, --tau_torque_mpa, --fz_peak_mpa
     print("max |fx,fy,fz| =", np.max(np.abs(fx_mpa)), np.max(np.abs(fy_mpa)), np.max(np.abs(fz_mpa)), " mpa")
 
-    # 1) fz heatmap
+    # 1) fz heatmap plot
     fig1, ax1 = plt.subplots(figsize=(6, 4), constrained_layout=True)
     im1 = ax1.imshow(
         fz_mpa, origin="lower", extent=[X_mm.min(), X_mm.max(), Y_mm.min(), Y_mm.max()],
@@ -54,6 +59,10 @@ def plot_force_maps(
     fig2, ax2 = plt.subplots(figsize=(6, 4), constrained_layout=True)
     bg = np.abs(fz_mpa)
     vmax = np.percentile(bg, 99) if np.any(bg > 0) else 1.0
+    #if vmax<0.015:
+    #    vmax = 1.0
+    if fz_clim is not None:
+        vmin, vmax = float(fz_clim[0]), float(fz_clim[1])
     im2 = ax2.imshow(
         bg, origin="lower", extent=[X_mm.min(), X_mm.max(), Y_mm.min(), Y_mm.max()],
         cmap="Greys", vmin=0.0, vmax=vmax, interpolation="bilinear"

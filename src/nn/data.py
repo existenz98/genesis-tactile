@@ -144,6 +144,10 @@ class FlowForceDataset(Dataset):
         if self.target_wh is not None:
             vx, vy = resize_flow(vx, vy, self.target_wh[0], self.target_wh[1])
 
+        # flip y axis, and negate the value
+        if self.ds.flip_y:
+            vy = -vy[::-1, :].copy()
+
         # Augment (train only)
         vx, vy = augment_flow(vx, vy, self.aug, self.rng)
 

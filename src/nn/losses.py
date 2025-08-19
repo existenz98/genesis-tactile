@@ -31,16 +31,29 @@ def friction_cone_penalty(y_hat, mu: float = 0.6, weight: float = 1.0):
     viol = F.relu(shear - mu * tz)
     return weight * torch.mean(viol**2)
 
-def compose_loss(y_hat, y,
+def compose_loss(cfg,
+                 y_hat, y,
                  w_mse=1.0, w_rel=0.0, rel_eps=1e-3,
                  w_tv=0.0, w_nonneg=0.0,
                  w_fric=0.0, mu=0.6):
+    #print(w_mse, w_rel, w_tv, w_nonneg, w_fric)
+
     loss = 0.0
-    l_mse = mse_loss(y_hat, y) * w_mse; loss += l_mse
-    l_rel = rel_l1_loss(y_hat, y, rel_eps) * w_rel; loss += l_rel
-    l_tv  = tv_loss(y_hat, w_tv); loss += l_tv
-    l_nn  = nonneg_tz_penalty(y_hat, w_nonneg); loss += l_nn
-    l_fc  = friction_cone_penalty(y_hat, mu, w_fric); loss += l_fc
+
+    l_mse = mse_loss(y_hat, y) * w_mse; loss += l_mse               # L2
+    l_rel = rel_l1_loss(y_hat, y, rel_eps) * w_rel; loss += l_rel   # L1
+    l_tv  = tv_loss(y_hat, w_tv); loss += l_tv      # total variation penalty
+
+    # PINN losses
+    scales = torch.tensor([cfg.scaling.force_scale[0],
+                       cfg.scaling.force_scale[1],
+                       cfg.scaling.force_scale[2]],
+                      device=y_hat.device, dtype=y_hat.dtype).view(1,3,1,1)
+    y_raw = y_hat * scales      # first convert to physical unit (MPa)
+    l_nn  = nonneg_tz_penalty(y_raw, w_nonneg); loss += l_nn        # none-negative penalty
+    l_fc  = friction_cone_penalty(y_raw, mu, w_fric); loss += l_fc  # friction-cone penalty
+
+
     parts = dict(mse=float(l_mse.item()), rel=float(l_rel.item()),
                  tv=float(l_tv.item()), nonneg=float(l_nn.item()), fric=float(l_fc.item()))
     return loss, parts

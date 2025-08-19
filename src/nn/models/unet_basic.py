@@ -25,28 +25,71 @@ class DoubleConv(nn.Module):
     def forward(self, x): return self.block(x)
 
 class Down(nn.Module):
-    #TODO better choice is 'strided conv + norm+SiLU'
     def __init__(self, in_ch: int, out_ch: int, norm: str = "group"):
         super().__init__()
-        self.pool = nn.AvgPool2d(2, 2)
-        self.conv = DoubleConv(in_ch, out_ch, norm)
+        
+        # Method 1. AvgPool2d
+        #  is not good enough, better choice is 'strided conv + norm+SiLU'
+        #self.pool = nn.AvgPool2d(2, 2)
+        #self.conv = DoubleConv(in_ch, out_ch, norm)
+
+        # Method 2. Conv2D
+        # downsampling using Conv 3x3, stride=2, padding=1 -> protect  edge, and feeling
+        self.block = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size=2, stride=2, padding=0, bias=False),   # floor(H/2)
+            norm_layer(out_ch, norm),
+            nn.SiLU(inplace=True),
+            # feature extraction：2nd Conv 3x3
+            nn.Conv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False),
+            norm_layer(out_ch, norm),
+            nn.SiLU(inplace=True),
+        )
+
     def forward(self, x):
-        return self.conv(self.pool(x))
+        # Method 1.
+        #return self.conv(self.pool(x))
+
+        # Method 2.
+        return self.block(x)
     
 class Up(nn.Module):
-    #TODO better choice is 'bilinear upsample + Conv3×3'
+    
     def __init__(self, in_ch: int, out_ch: int, norm: str = "group"):
         super().__init__()
-        self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
+
+        # Method 1. ConvTranspose2d. ConvTranspose2d is not good enough, better choice is 'bilinear upsample + Conv3×3'
+        #self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
+
+        # Method 2. Upsampling
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
         self.conv = DoubleConv(in_ch, out_ch, norm)
+
+    def _match_to(self, x, ref):
+        import torch.nn.functional as F
+
+        dh = ref.size(2) - x.size(2)
+        dw = ref.size(3) - x.size(3)
+        # pad right/bottom if x is smaller
+        if dh > 0 or dw > 0:
+            x = F.pad(x, (0, max(0, dw), 0, max(0, dh)))
+        # crop right/bottom if x is larger
+        if dh < 0 or dw < 0:
+            x = x[:, :, :ref.size(2), :ref.size(3)]
+        return x
+    
     def forward(self, x, skip):
         x = self.up(x)
-        # pad if needed
-        dh = skip.size(2) - x.size(2)
-        dw = skip.size(3) - x.size(3)
-        if dh != 0 or dw != 0:
-            x = nn.functional.pad(x, (0, max(0, dw), 0, max(0, dh)))
-        x = torch.cat([skip, x], dim=1)
+
+        # before cat, pad if needed to align size
+        x = self._match_to(x, skip)
+
+        #dh = skip.size(2) - x.size(2)
+        #dw = skip.size(3) - x.size(3)
+        #if dh != 0 or dw != 0:
+        #    x = nn.functional.pad(x, (0, max(0, dw), 0, max(0, dh)))
+        #x = torch.cat([skip, x], dim=1)
+        
         return self.conv(x)
 
 class UNetBasic(nn.Module):
