@@ -148,6 +148,9 @@ python src/dataset/gen_dataset.py \
     --n_balls_min 1 --n_balls_max 2
 ```
 
+### Training
+
+Traing and infer test see: [src/nn/README.md](src/nn/README.md)
 
 ### End-to-end validation (**Not Implemented Yet**):
 

@@ -17,6 +17,7 @@ data/output/
 data/cache/
 data/raw/
 dataset/*
+outputs/*
 *.npz
 *.npy
 *.png

@@ -1,0 +1,61 @@
+dataset:
+  root: dataset/train
+  manifest: dataset/train/manifest.csv
+  flow_file: flow_f32.npz
+  force_file: force_top.npz
+  resize_to: [80, 60]
+  stats_json: dataset/train/stats.json
+
+scaling:
+  flow_scale: 2.5        # fill from stats.json["flow_scale_p95"]
+  flow_mean: 0.0
+  target_mode: "linear"  # or "log"
+  force_scale: [0.12, 0.05, 0.05]  # fill from stats.json["force_scale_p99"]
+  log_alpha:  [0.1, 0.05, 0.05]    # fill from stats.json["log_alpha_p10"]
+
+augment:
+  enabled: true
+  awgn_std_min: 0.0
+  awgn_std_max: 0.15
+  bias_lf_amp_min: 0.0
+  bias_lf_amp_max: 0.2
+  bias_lf_grid: [10, 8]
+  gain_min: -0.1
+  gain_max:  0.1
+  drift_abs_max: 0.1
+  blur_sigma_min: 0.0
+  blur_sigma_max: 1.0
+  dropout_prob: 0.0
+  dropout_boxes: 0
+  dropout_box_wh: [8, 8]
+
+model:
+  type: "unet_basic"
+  in_ch: 2
+  out_ch: 3
+  channels: [16, 32, 64, 128]
+  norm: "group"
+  nonneg_tz_head: false
+
+loss:
+  mse: 1.0
+  rel_l1: 0.2
+  tv: 0.0
+  nonneg_tz: 0.1
+  friction_cone_weight: 0.1
+  friction_mu: 0.6
+  rel_epsilon: 1.0e-3
+
+train:
+  epochs: 100
+  batch_size: 16
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  amp: false
+  num_workers: 4
+  ckpt_dir: outputs/ckpt
+  log_dir: outputs/logs
+  seed: 123
+  val_every: 1
+  grad_clip: 1.0
+  save_best_only: true
