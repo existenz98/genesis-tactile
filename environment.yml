@@ -28,6 +28,7 @@ dependencies:
   - pillow
   - pyyaml
   - tqdm
+  - pyzmq
   # --- notebooks ---
   - jupyterlab
   - ipywidgets

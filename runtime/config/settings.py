@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 
 class SourceMode(str, Enum):
@@ -195,6 +195,54 @@ class CnnConfig:
     out_grid_wh: Optional[Tuple[int, int]] = (20, 15)       # resize output to this res
 
 
+# ----- Server Config -----
+
+@dataclass
+class CtrlConfig:
+    enable: bool = True
+    bind: str = "ipc:///tmp/tacto6d.ctrl"
+
+@dataclass
+class IpcNotifyConfig:
+    # local-only
+    enable: bool = True
+    bind: str = "ipc:///tmp/tacto6d.frame"
+    topic: str = "frame/ready"
+
+@dataclass
+class ShmFrameConfig:
+    name: str = "tacto6d_frame0"
+    n_slots: int = 8
+    cam_wh: Tuple[int, int] = (640, 480)      # (Wc, Hc)
+    flow_wh: Tuple[int, int] = (640, 480)     # (Wf, Hf)
+    force_wh: Tuple[int, int] = (20, 15)      # (Wp, Hp)
+    # fixed formats
+    cam_format: str = "BGR8"  # 3 channels
+    flow_order: str = "[vy,vx]"
+    force_order: str = "[p,tx,ty]"
+    # physical scales (informational)
+    mm_per_px: float = 0.05   # at flow resolution
+    cell_mm: float = 2.0      # at force resolution
+    schema: int = 1
+
+    def to_header_dict(self) -> Dict[str, Any]:
+        Wc, Hc = self.cam_wh
+        Wf, Hf = self.flow_wh
+        Wp, Hp = self.force_wh
+        return {
+            "schema": self.schema,
+            "name": self.name,
+            "n_slots": self.n_slots,
+            "cam": {"W": Wc, "H": Hc, "format": self.cam_format, "channels": 3},
+            "flow": {"W": Wf, "H": Hf, "dtype": "float32", "order": self.flow_order, "units": "px/frame"},
+            "force": {"W": Wp, "H": Hp, "dtype": "float32", "order": self.force_order, "units": "MPa"},
+            "scales": {"mm_per_px": self.mm_per_px, "cell_mm": self.cell_mm},
+            "coords": { "x_right": True, "y_down": True, "z_into": True },
+        }
+
+
+
+
 
 @dataclass
 class RuntimeConfig:
@@ -225,10 +273,14 @@ class RuntimeConfig:
     # 3D Visualization
     vis3d: Vis3DConfig = field(default_factory=Vis3DConfig)
 
-
     # Output & display
     output: OutputConfig = field(default_factory=OutputConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
+
+    # Server
+    shm: ShmFrameConfig = field(default_factory=ShmFrameConfig)
+    notify: IpcNotifyConfig = field(default_factory=IpcNotifyConfig)
+    control: CtrlConfig = field(default_factory=CtrlConfig)
 
     # Misc
     downscale: float = 2.0

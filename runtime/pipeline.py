@@ -19,6 +19,13 @@ from .algorithms.physics_solver import PhysicsSolver
 from .config.settings import PhysicsConfig
 from .algorithms.cnn_model import CnnForceSolver
 
+# sdk related
+from .server.shm_frame_ring import ShmFrameRing, ShmFrameConfig, ALGO_PHYSICS, ALGO_CNN, ALGO_IFEM
+from .server.ipc_notify import IpcNotifier, IpcNotifyConfig
+from .server.ctrl_server import CtrlServer, CtrlConfig
+
+
+
 
 def _resize_bgr(img: np.ndarray, scale: float) -> np.ndarray:
     if scale == 1.0: return img
@@ -35,9 +42,16 @@ class RuntimePipeline:
 
     def __init__(self, cfg: RuntimeConfig):
         self.cfg = cfg
+        self._algo_choice = 2  # Active algorithm, api client can switch it.  1=Physics, 2=CNN, 3=iFEM
         self.latest_flows: Dict[str, Any] = {}  # updated every frame
         self.bus: Optional[FrameBus] = None     # but's topics will be created later by runner
         self.latest_physics = None
+
+    # callable by CtrlServer
+    def get_algo(self) -> int: return self._algo_choice
+    def set_algo(self, a: int) -> None:
+        a = int(a)
+        if a in (1,2,3): self._algo_choice = a
 
     def _make_source(self):
         sm = self.cfg.source_mode
@@ -57,10 +71,38 @@ class RuntimePipeline:
         cfg = self.cfg
         self.bus = bus
 
-        # camera source
+        # ----- camera source -----
         src = self._make_source()
 
-        # debug 2D display
+        # ----- create SHM ring -----
+        # get shapes by warmup: read first frame, compute initial flow & force to determine SHM shapes
+        first_bgr = next(src.frames())
+        H_camera, W_camera = first_bgr.shape[:2]
+        #vy, vx = self._compute_initial_flow(first_bgr)
+        #H_flow, W_flow = vy.shape
+        H_flow, W_flow = (480, 640)
+        #phys = self._compute_force(vy, vx)  # dict with grid/p/tau
+        #H_force, W_force = int(phys["grid"]["H"]), int(phys["grid"]["W"])
+        H_force, W_force = (15, 20)
+
+        shm_cfg = ShmFrameConfig(
+            cam_wh=(W_camera, H_camera),
+            flow_wh=(W_flow, H_flow),
+            force_wh=(W_force, H_force),
+            mm_per_px=float(self.cfg.physics.mm_per_px),
+            #cell_mm=float(phys["grid"]["cell_mm"]),    #TODO need to compute once and get the value.
+        )
+        ring = ShmFrameRing.create(shm_cfg)
+
+        # ----- Notifier (IPC PUB) and Control server (IPC REP) -----
+        notifier = IpcNotifier(IpcNotifyConfig(enable=self.cfg.notify.enable, bind=self.cfg.notify.bind))
+        notifier.start()
+        ctrl = CtrlServer(CtrlConfig(enable=self.cfg.control.enable, bind=self.cfg.control.bind),
+                          get_algo=self.get_algo, set_algo=self.set_algo,
+                          get_info=lambda: {"version":"0.1","shm":self.cfg.shm.name})
+        ctrl.start()
+
+        # ----- debug 2D display -----
         disp = DebugDisplay(cfg.display)
 
         writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
@@ -71,7 +113,7 @@ class RuntimePipeline:
         ref_comp: Optional[np.ndarray] = None  # HxWx3 linear components (R/G/B)
         ref_raw_gray: Optional[np.ndarray] = None
 
-        # Modules
+        # ----- Modules -----
         compensator = None
         if cfg.compensation_mode == CompensationMode.BASELINE:
             compensator = BaselineCompensator(cfg.preproc)
@@ -82,17 +124,17 @@ class RuntimePipeline:
         if cfg.unmix_mode != UnmixMode.SKIP:
             unmix = UnmixModel(cfg.unmix)
 
-        # Physics Solver
+        # ----- Physics Solver -----
         phys_cfg = self.cfg.physics
         physics_solver = PhysicsSolver(phys_cfg)
 
-        # CNN Solver
+        # ----- CNN Solver -----
         cnn_solver = None
         cnn_cfg = self.cfg.cnn
         if self.cfg.cnn.enable:
             cnn_solver = CnnForceSolver(self.cfg.cnn)        
 
-        # Stream
+        # ----- Main Loop -----
         count = 0
         src.start()
         try:
@@ -102,6 +144,8 @@ class RuntimePipeline:
                 bgr = _resize_bgr(bgr, cfg.downscale)
                 if cfg.display.show_input:
                     disp.show("input", bgr)
+
+                # 1) compute flow
 
                 # Compensation
                 #print("pipeline - compensation")
@@ -212,14 +256,17 @@ class RuntimePipeline:
                         )
                         disp.show("flow_quiver_raw", quiv_bgr)
 
-                    # Solver
-                    phys = None
-                    #phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
-                    #print(f"physics solver result = {phys['p'].shape}")
+                    # 2) Solver
+                    algo_id = self.get_algo()
 
-                    if self.cfg.cnn.enable and cnn_solver is not None:
-                        phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
-                        #print(f"cnn solver result = {phys['p'].shape}")
+                    phys = None
+                    if algo_id == 1:
+                        phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
+                        #print(f"physics solver result = {phys['p'].shape}")
+                    elif algo_id == 2:
+                        if self.cfg.cnn.enable and cnn_solver is not None:
+                            phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
+                            #print(f"cnn solver result = {phys['p'].shape}")
 
                     self.latest_physics = phys  # expose to downstream (SDK / Visualization)
 
@@ -260,6 +307,25 @@ class RuntimePipeline:
                         self.bus.publish("physics", phys)
                     #print("publish <<<")
 
+                    # 3) write one Frame into SHM
+                    slot, views = ring.begin_frame(seq=count)               # 1. prepare to write
+                    # camera
+                    views["camera"][:] = bgr  # must be BGR8
+                    # flow (resize if flow size differs; omitted here assuming same as header)
+                    views["vy"][:] = vy
+                    views["vx"][:] = vx
+                    # force (assumed already at (Hp,Wp))
+                    views["p"][:]  = phys["p"]
+                    views["tx"][:] = phys["tau"]["tx"]
+                    views["ty"][:] = phys["tau"]["ty"]
+                    # commit & notify
+                    t_usec = int(time.time() * 1e6)
+                    ring.commit_frame(slot, algo=algo_id, t_usec=t_usec)    # 2. actual writing
+                                                                        
+                    notifier.announce_ready(name=shm_cfg.name, slot=slot,   # 3. notify clients
+                                            seq=count, t_usec=t_usec)
+
+
                     vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
                     down["raw"] = (vy_ds, vx_ds)
 
@@ -284,6 +350,14 @@ class RuntimePipeline:
                 #print("pipeline - loop")
 
         finally:
+            # SDK output related
+            ctrl.stop()
+            notifier.stop()
+            ring.close()
+            try: ring.unlink()   # commenting out to keep debugging...
+            except: pass
+
+            # algo pipeline related
             src.stop()
             disp.close()
             if writers is not None:

@@ -74,7 +74,7 @@ def train_one_epoch(model, dl, optimizer, scaler, cfg: Cfg, device):
         if cfg.train.amp and scaler is not None:
             with torch.cuda.amp.autocast():
                 y_hat = model(x)
-                loss, parts = compose_loss(
+                loss, parts = compose_loss(cfg,
                     y_hat, y,
                     w_mse=cfg.loss.mse, w_rel=cfg.loss.rel_l1, rel_eps=cfg.loss.rel_epsilon,
                     w_tv=cfg.loss.tv, w_nonneg=cfg.loss.nonneg_tz,
@@ -88,7 +88,7 @@ def train_one_epoch(model, dl, optimizer, scaler, cfg: Cfg, device):
             scaler.update()
         else:
             y_hat = model(x)
-            loss, parts = compose_loss(
+            loss, parts = compose_loss(cfg,
                 y_hat, y,
                 w_mse=cfg.loss.mse, w_rel=cfg.loss.rel_l1, rel_eps=cfg.loss.rel_epsilon,
                 w_tv=cfg.loss.tv, w_nonneg=cfg.loss.nonneg_tz,
@@ -110,7 +110,7 @@ def eval_one_epoch(model, dl, cfg: Cfg, device):
         x = batch["x"].to(device)
         y = batch["y"].to(device)
         y_hat = model(x)
-        loss, parts = compose_loss(
+        loss, parts = compose_loss(cfg,
             y_hat, y,
             w_mse=cfg.loss.mse, w_rel=cfg.loss.rel_l1, rel_eps=cfg.loss.rel_epsilon,
             w_tv=cfg.loss.tv, w_nonneg=cfg.loss.nonneg_tz,

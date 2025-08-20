@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tacto6d"
+version = "0.0.1"
+description = "Tacto6D SDK (local SHM + IPC) for camera/flow/force frames and control"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Yue Fei", email = "feiyuefy@gmail.com" }]
+license = { text = "Proprietary" }
+
+# Core deps for the SDK (no heavy GUI deps)
+dependencies = [
+  "pyzmq>=25,<27",
+  "numpy>=1.22"
+]
+
+# Optional deps for example viewers
+[project.optional-dependencies]
+viz = ["opencv-python>=4.7"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tacto6d*"]
