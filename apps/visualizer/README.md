@@ -53,3 +53,7 @@ python apps/visualizer/run_visualizer.py
 
 The app auto‑connects to the default local endpoints and begins rendering the latest frame.
 
+## 5) Configuration
+
+Edit apps/visualizer/visualizer/config.py
+

@@ -11,8 +11,10 @@ class ForcePane(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self); layout.setContentsMargins(0,0,0,0)
         self.glw = pg.GraphicsLayoutWidget()
         self.view = self.glw.addViewBox()
+        self.view.invertY(True)                             # <— keep origin at top-left
         self.view.setAspectLocked(True)
-        self.img = pg.ImageItem()
+        #self.img = pg.ImageItem()
+        self.img = pg.ImageItem(axisOrder='row-major')  # <— avoid W/H swap
         self.view.addItem(self.img)
         layout.addWidget(self.glw)
         self.scale = 6.0  # quiver scale

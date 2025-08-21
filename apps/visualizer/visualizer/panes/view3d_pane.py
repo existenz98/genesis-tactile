@@ -40,12 +40,20 @@ class View3DPane(QtWidgets.QWidget):
         H, W = p.shape
         xs = np.arange(W, dtype=np.float32) * float(cell_mm)
         ys = np.arange(H, dtype=np.float32) * float(cell_mm)
+
+        # meshgrid in image order (H,W)
         X, Y = np.meshgrid(xs, ys)
         Z = p.astype(np.float32) * self._scale_z  # downward arrows are drawn separately
 
-        # Rebuild lightweight geometry (small grids are fine to rebuild per frame)
-        surf = pv.StructuredGrid(X, Y, Z)
-        surf["p"] = p.ravel(order="C")
+
+
+        # Rebuild lightweight geometry per frame
+        # make the grid coordinates Fortran‑contiguous, because
+        # VTK’s StructuredGrid expects point arrays in Fortran order
+        surf = pv.StructuredGrid(np.asfortranarray(X),
+                         np.asfortranarray(Y),
+                         np.asfortranarray(Z))
+        surf["p"] = p.astype(np.float32).ravel(order="F")
         if self._surf_actor is None:
             self._surf_actor = self.plotter.add_mesh(surf, scalars="p",
                                                      cmap="turbo", opacity=0.6, show_edges=False)

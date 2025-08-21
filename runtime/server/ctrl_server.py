@@ -15,10 +15,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 import zmq
 
-@dataclass
-class CtrlConfig:
-    enable: bool = True
-    bind: str = "ipc:///tmp/tacto6d.ctrl"
+from ..config.settings import CtrlConfig
 
 class CtrlServer:
     def __init__(self, cfg: CtrlConfig,
