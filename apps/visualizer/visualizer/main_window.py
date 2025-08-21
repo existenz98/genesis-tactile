@@ -112,10 +112,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.p_force = ForcePane("Force")
         self.p_3d = View3DPane()
 
-        grid.addWidget(wrap_group("Camera", self.p_cam), 0, 0)
-        grid.addWidget(wrap_group("Flow", self.p_flow), 0, 1)
-        grid.addWidget(wrap_group("Force", self.p_force), 1, 0)
-        grid.addWidget(wrap_group("3D Force", self.p_3d), 1, 1)
+        if False:
+            # 2x2 layout
+            grid.addWidget(wrap_group("Camera", self.p_cam), 0, 0)
+            grid.addWidget(wrap_group("Flow", self.p_flow), 0, 1)
+            grid.addWidget(wrap_group("Force", self.p_force), 1, 0)
+            grid.addWidget(wrap_group("3D Force", self.p_3d), 1, 1)
+        else:
+            # (row1: Camera | Flow | Force2D ; row2: 3D Force)
+            grid.addWidget(wrap_group("Camera",   self.p_cam),  0, 0)
+            grid.addWidget(wrap_group("Flow",     self.p_flow), 0, 1)
+            grid.addWidget(wrap_group("Force",    self.p_force),0, 2)
+            grid.addWidget(wrap_group("3D Force", self.p_3d),   1, 0, 1, 3)  # row=1, col=0, rowspan=1, colspan=3
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            grid.setColumnStretch(2, 1)
+            grid.setRowStretch(0, 1)
+            grid.setRowStretch(1, 2)
+
+
 
         # ---- Right inspector (algorithm switch, view params)
         self.dock = QtWidgets.QDockWidget("Inspector", self)
@@ -155,7 +170,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cmb_algo.currentIndexChanged.connect(self._on_algo_changed)
         f.addRow("Choose:", self.cmb_algo)
 
-        # Flow params
+        # Flow 2D plot params
         gb_flow = QtWidgets.QGroupBox("Flow")
         lf = QtWidgets.QFormLayout(gb_flow)
         self.sp_flow_stride = QtWidgets.QSpinBox(); self.sp_flow_stride.setRange(4, 64); self.sp_flow_stride.setValue(self.cfg.view.flow_stride)
@@ -168,20 +183,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sp_flow_scale.valueChanged.connect(self._apply_flow_params)
         self.sp_flow_minlen.valueChanged.connect(self._apply_flow_params)
 
-        # Force params
+        # Force 2D plot params
         gb_force = QtWidgets.QGroupBox("Force")
         ff = QtWidgets.QFormLayout(gb_force)
         self.sp_force_scale = QtWidgets.QDoubleSpinBox(); self.sp_force_scale.setRange(0.1, 40); self.sp_force_scale.setValue(self.cfg.view.force_quiver_scale)
         ff.addRow("Quiver scale", self.sp_force_scale)
         self.sp_force_scale.valueChanged.connect(self._apply_force_params)
 
+        # 3D Force view params
+        gb_3d = QtWidgets.QGroupBox("3D")
+        f3 = QtWidgets.QFormLayout(gb_3d)
+        self.sp3_glyph = QtWidgets.QDoubleSpinBox()
+        self.sp3_glyph.setRange(0.05, 5.0); self.sp3_glyph.setSingleStep(0.05); self.sp3_glyph.setValue(0.6)
+        self.sp3_z = QtWidgets.QDoubleSpinBox()
+        self.sp3_z.setRange(0.05, 5.0); self.sp3_z.setSingleStep(0.05); self.sp3_z.setValue(0.2)
+        f3.addRow("Arrow size", self.sp3_glyph)
+        f3.addRow("Arrow Z weight", self.sp3_z)
+        self.sp3_glyph.valueChanged.connect(self._apply_3d_params)
+        self.sp3_z.valueChanged.connect(self._apply_3d_params)
+
         v.addWidget(gb_algo)
         v.addWidget(gb_flow)
         v.addWidget(gb_force)
+        v.addWidget(gb_3d)   # don't forget to add to the inspector layout
         v.addStretch(1)
+
         return w
 
-
+    def _apply_3d_params(self):
+        self.p_3d.set_params(glyph_factor=self.sp3_glyph.value(),
+                         z_weight=self.sp3_z.value())
+    
     def _on_algo_changed(self, idx: int):
         ok = self.ctrl.set_algo(idx+1)  # 1..3
         if not ok:

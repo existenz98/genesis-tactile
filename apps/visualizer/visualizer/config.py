@@ -14,7 +14,7 @@ class SDKConfig:
 @dataclass
 class ViewParams:
     flow_stride: int = 16
-    flow_scale: float = 8.0
+    flow_scale: float = 1.0
     flow_minlen: float = 0.2
     force_quiver_scale: float = 6.0
     force_colormap: str = "turbo"  # visual only
