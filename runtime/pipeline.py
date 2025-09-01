@@ -39,6 +39,8 @@ from .algorithms.physics_solver import PhysicsSolver
 from .config.settings import PhysicsConfig
 from .algorithms.cnn_model import CnnForceSolver
 
+from runtime.utils.prof import Prof
+
 # sdk related
 from .server.shm_frame_ring import ShmFrameRing, ShmFrameConfig, ALGO_PHYSICS, ALGO_CNN, ALGO_IFEM
 from .server.ipc_notify import IpcNotifier, IpcNotifyConfig
@@ -48,7 +50,16 @@ from .server.ctrl_server import CtrlServer, CtrlConfig
 
 
 def _resize_bgr(img: np.ndarray, scale: float) -> np.ndarray:
-    if scale == 1.0: return img
+
+    # no change
+    if scale == 1.0:
+        return img
+
+    # 1/2 scale
+    #if scale == 0.5:
+    #    return cv2.pyrDown(img)
+
+    # other scale
     h,w = img.shape[:2]
     nh, nw = int(h*scale), int(w*scale)
     return cv2.resize(img, (nw,nh), interpolation=cv2.INTER_AREA)
@@ -88,8 +99,15 @@ class RuntimePipeline:
             raise ValueError(f"Unknown source mode: {sm}")
 
     def run(self, bus: Optional[FrameBus] = None) -> Dict[str, Any]:
+
+        # Config
         cfg = self.cfg
+
+        # message out
         self.bus = bus
+
+        # profiler
+        prof = Prof(enable=True, report_every=20)
 
         # ----- camera source -----
         src = self._make_source()
@@ -99,8 +117,7 @@ class RuntimePipeline:
         first_bgr = next(src.frames())
         H_camera, W_camera = first_bgr.shape[:2]
         #vy, vx = self._compute_initial_flow(first_bgr)
-        #H_flow, W_flow = vy.shape
-        H_flow, W_flow = (480, 640)
+        H_flow, W_flow = (int(H_camera*cfg.downscale), int(W_camera*cfg.downscale))
         #phys = self._compute_force(vy, vx)  # dict with grid/p/tau
         #H_force, W_force = int(phys["grid"]["H"]), int(phys["grid"]["W"])
         H_force, W_force = (15, 20)
@@ -152,16 +169,19 @@ class RuntimePipeline:
         cnn_solver = None
         cnn_cfg = self.cfg.cnn
         if self.cfg.cnn.enable:
-            cnn_solver = CnnForceSolver(self.cfg.cnn)        
+            cnn_solver = CnnForceSolver(self.cfg.cnn)
+            print(f"[pipeline] Initialized CNN solver: {cnn_solver}")
 
         # ----- Main Loop -----
         count = 0
         src.start()
         try:
-            for bgr in src.frames():
+            for camera_frame in src.frames():
                 #print("pipeline - got new frame")
 
-                bgr = _resize_bgr(bgr, cfg.downscale)
+                # 0) downsampling input
+                with prof("0) resize"):
+                    bgr = _resize_bgr(camera_frame, cfg.downscale)
                 if cfg.display.show_input:
                     disp.show("input", bgr)
 
@@ -243,18 +263,15 @@ class RuntimePipeline:
                             )
                             disp.show(f"flow_quiver_{name}", quiv_bgr)
 
-                        # downsampled arrays for output (to algorithms)
-                        vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
-                        down[name] = (vy_ds, vx_ds)
 
                 # Raw flow vs reference
                 if cfg.do_raw_flow:
-                    #print("pipeline - compute flow")
-                    cur_gray = to_gray_f32_bgr(bal_bgr if unmix is not None else bgr)
-                    vy, vx = compute_flow(ref_raw_gray, cur_gray, cfg.flow)
-                    dense["raw"] = (vy, vx)
+                    with prof("1) raw flow"):
+                        cur_gray = to_gray_f32_bgr(bal_bgr if unmix is not None else bgr)
+                        vy, vx = compute_flow(ref_raw_gray, cur_gray, cfg.flow)
+                        vx = vx / self.cfg.downscale  # flow strength as original pixel scale
+                        vy = vy / self.cfg.downscale  # flow strength as original pixel scale
 
-                    #print("pipeline - show flow")
                     if cfg.display.show_flow_color_raw:
                         color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
                         disp.show("flow_color_raw", color_bgr)
@@ -278,15 +295,15 @@ class RuntimePipeline:
 
                     # 2) Solver
                     algo_id = self.get_algo()
-
                     phys = None
+
                     if algo_id == 1:
-                        phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
-                        #print(f"physics solver result = {phys['p'].shape}")
+                        with prof("2) solver - phys"):
+                            phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
                     elif algo_id == 2:
-                        if self.cfg.cnn.enable and cnn_solver is not None:
-                            phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
-                            #print(f"cnn solver result = {phys['p'].shape}")
+                        with prof("2) solver - cnn"):
+                            if self.cfg.cnn.enable and cnn_solver is not None:
+                                phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
 
                     self.latest_physics = phys  # expose to downstream (SDK / Visualization)
 
@@ -327,10 +344,10 @@ class RuntimePipeline:
                         self.bus.publish("physics", phys)
                     #print("publish <<<")
 
-                    # 3) write one Frame into SHM
+                    # 3) Output: write one Frame into SHM
                     slot, views = ring.begin_frame(seq=count)               # 1. prepare to write
                     # camera
-                    views["camera"][:] = bgr  # must be BGR8
+                    views["camera"][:] = camera_frame  # must be BGR8
                     # flow (resize if flow size differs; omitted here assuming same as header)
                     views["vy"][:] = vy
                     views["vx"][:] = vx
@@ -346,17 +363,6 @@ class RuntimePipeline:
                                             seq=count, t_usec=t_usec)
 
 
-                    vy_ds, vx_ds, _ = flow_block_reduce(vy, vx, block=cfg.flow.ds_block, pool=cfg.flow.ds_pool)
-                    down["raw"] = (vy_ds, vx_ds)
-
-
-                # Output: make latest flows available to solvers (iFEM/physics/CNN)
-                #print("pipeline - self.latest_flows")
-                self.latest_flows = {
-                    "frame_index": count,
-                    "dense": dense,         # dict: { 'R': (vy, vx), 'G':..., 'B':..., 'raw':(...) }
-                    "downsampled": down,    # dict: same keys but pooled arrays
-                }
 
                 #print("pipeline - cv disp.tick")
                 key = disp.tick()
@@ -368,6 +374,7 @@ class RuntimePipeline:
                     break
 
                 #print("pipeline - loop")
+                prof.tick()
 
         finally:
             # SDK output related

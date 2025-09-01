@@ -42,6 +42,44 @@ def _as_u8(gray):
 def _as_f32(gray):
     return gray.astype(np.float32, copy=False)
 
+
+# module-global
+_OPTICAL_FLOW_DIS_CACHE = {}
+
+def _get_dis(H: int, W: int, fast_preset=False):
+    """
+    Create the DIS instance once (reuse it every frame)
+    because construction + parameter setup costs several ms and dominates at small sizes.
+    Keep a cached instance keyed by image size + config.
+    """
+
+    key = (H, W, fast_preset)
+    dis = _OPTICAL_FLOW_DIS_CACHE.get(key)
+    if dis is None:
+        if hasattr(cv2, "optflow") and hasattr(cv2.optflow, "createOptFlow_DIS"):
+            preset = cv2.optflow.DISOPTICAL_FLOW_PRESET_ULTRAFAST if fast_preset else cv2.optflow.DISOPTICAL_FLOW_PRESET_FAST
+            dis = cv2.optflow.createOptFlow_DIS(preset)
+        elif hasattr(cv2, "DISOpticalFlow_create"):
+            dis = cv2.DISOpticalFlow_create(
+                cv2.DISOPTICAL_FLOW_PRESET_ULTRAFAST if fast_preset else cv2.DISOPTICAL_FLOW_PRESET_FAST
+            )
+        else:
+            raise RuntimeError("DIS not available in this OpenCV build. Install opencv-contrib-python "
+                               "or switch flow.method to 'farneback' or 'tvl1'.")
+
+        # Further TUNING for speed:
+        #dis.setFinestScale(2)                    # skip full-res stage; 0 = full-res; 1=1/2; 2=1/4
+        #dis.setPatchSize(8)
+        #dis.setPatchStride(4)
+        #dis.setGradientDescentIterations(12)
+        #dis.setUseMeanNormalization(False)
+        #dis.setUseSpatialPropagation(True)
+        #dis.setVariationalRefinementIterations(0)  # disable slow refinement
+
+        _OPTICAL_FLOW_DIS_CACHE[key] = dis
+    return dis
+
+
 def compute_flow(ref_gray: np.ndarray, cur_gray: np.ndarray, cfg: FlowConfig) -> Tuple[np.ndarray, np.ndarray]:
     method = cfg.method
 
@@ -56,21 +94,28 @@ def compute_flow(ref_gray: np.ndarray, cur_gray: np.ndarray, cfg: FlowConfig) ->
         return vy, vx
 
     elif method == FlowMethod.DIS:
-        # Try both API variants
-        if hasattr(cv2, "optflow") and hasattr(cv2.optflow, "createOptFlow_DIS"):
-            dis = cv2.optflow.createOptFlow_DIS(
-                getattr(cv2.optflow, "DISOPTICAL_FLOW_PRESET_MEDIUM", 2)
-            )
-        elif hasattr(cv2, "DISOpticalFlow_create"):
-            dis = cv2.DISOpticalFlow_create(
-                getattr(cv2, "DISOPTICAL_FLOW_PRESET_MEDIUM", 2)
-            )
-        else:
-            raise RuntimeError("DIS not available in this OpenCV build. Install opencv-contrib-python "
-                               "or switch flow.method to 'farneback' or 'tvl1'.")
         # need u8
         ref = _as_u8(ref_gray)
         cur = _as_u8(cur_gray)
+
+        if False:   # create a new DIS instance every frame (slow)
+            if hasattr(cv2, "optflow") and hasattr(cv2.optflow, "createOptFlow_DIS"):
+                dis = cv2.optflow.createOptFlow_DIS(
+                    #getattr(cv2.optflow, "DISOPTICAL_FLOW_PRESET_MEDIUM", 2)
+                    getattr(cv2.optflow, "DISOPTICAL_FLOW_PRESET_FAST", 2)
+                )
+            elif hasattr(cv2, "DISOpticalFlow_create"):
+                dis = cv2.DISOpticalFlow_create(
+                    #getattr(cv2, "DISOPTICAL_FLOW_PRESET_MEDIUM", 2)
+                    getattr(cv2, "DISOPTICAL_FLOW_PRESET_FAST", 2)
+                )
+            else:
+                raise RuntimeError("DIS not available in this OpenCV build. Install opencv-contrib-python "
+                                "or switch flow.method to 'farneback' or 'tvl1'.")
+        else:       # reuse existing dis object (faster)
+            H, W = ref.shape[:2]
+            dis = _get_dis(H, W, fast_preset=False)      # speed up: reusing existing dis object
+
         flow = dis.calc(ref, cur, None)
         vx = flow[...,0].astype(np.float32); vy = flow[...,1].astype(np.float32)
         return vy, vx

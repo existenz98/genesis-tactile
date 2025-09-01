@@ -89,7 +89,7 @@ class FlowConfig:
 @dataclass
 class DisplayConfig:
     enable: bool = True
-    window_scale: float = 0.7     # resize display windows
+    window_scale: float = 1.0     # resize display windows
     wait_key_ms: int = 1          # cv2.waitKey delay per frame, 0 will block until key press.
     show_input: bool = True
     show_compensated: bool = True
@@ -303,8 +303,8 @@ class RuntimeConfig:
     control: CtrlConfig = field(default_factory=CtrlConfig)
 
     # Misc
-    downscale: float = 2.0
-    max_frames: Optional[int] = None   # stop after N frames if set
+    downscale: float = 1.0              # down-sample the input frame
+    max_frames: Optional[int] = None    # stop after N frames if set
 
 
     def __post_init__(self):

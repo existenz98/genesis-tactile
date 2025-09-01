@@ -36,7 +36,9 @@ It does not depend on dataset/loader, uses the following:
 
 from __future__ import annotations
 from dataclasses import dataclass
+from multiprocessing import dummy
 from pathlib import Path
+from pyexpat import model
 from typing import Dict, Any, Optional, Tuple
 
 import numpy as np
@@ -57,6 +59,7 @@ from src.nn.config import Cfg as NNCfg
 from src.nn.models.unet_basic import UNetBasic
 
 from runtime.config.settings import CnnConfig
+from runtime.utils.prof import Prof
 
 
 class CnnForceSolver:
@@ -64,6 +67,7 @@ class CnnForceSolver:
 
     def __init__(self, cfg: CnnConfig) -> None:
         self.cfg = cfg
+
         # Load nn YAML (scaling & model meta)
         self.nn_cfg: NNCfg = nn_load_config(self.cfg.model_cfg)
 
@@ -91,11 +95,25 @@ class CnnForceSolver:
         if device_str.startswith("cuda") and not torch.cuda.is_available():
             print("[cnn_model] CUDA not available, falling back to CPU")
             device_str = "cpu"
+        else:
+            print(f"[cnn_model] CUDA is available, device='{device_str}'")
         self.device = torch.device(device_str)
 
+        torch.backends.cudnn.benchmark = True      # pick fastest conv alg for fixed (NCHW/NHWC,H,W)
+        torch.backends.cudnn.allow_tf32 = True     # if Ampere+, enables fast TF32 convs for fp32
+
+        # profiling
+        self.prof = Prof(enable=True, report_every=20)
+        if self.device.type == "cuda":
+            self._evt_start = torch.cuda.Event(enable_timing=True)
+            self._evt_end   = torch.cuda.Event(enable_timing=True)
+
+        # Build model
         self.model = self._build_model(self.nn_cfg).to(self.device).eval()
         # Optional fp16
         self._amp_dtype = torch.float16 if (self.cfg.use_half and self.device.type == "cuda") else torch.float32
+
+        self.model = self.model.to(memory_format=torch.channels_last)   # Channels-last memory format
 
         # Load checkpoint
         ckpt_path = Path(self.cfg.checkpoint)
@@ -108,15 +126,29 @@ class CnnForceSolver:
         if missing or unexpected:
             print(f"[cnn_model] Warning: missing={missing}, unexpected={unexpected}")
 
+        # Try torch.compile to cut launch overhead (need PyTorch 2+)
+        self.model = torch.compile(self.model, mode="reduce-overhead", fullgraph=False)
+        
+        # Warmup
+        # Warm up to trigger compilation & autotuning
+        print(f"[cnn_model] Warming up model on {self.device} ...")
+        Wm, Hm = self.model_wh
+        vx_r = np.zeros((Hm, Wm), np.float32)
+        vy_r = np.zeros((Hm, Wm), np.float32)
+        x = np.stack([vx_r, vy_r], axis=0)[None, ...]  # (1,2,H,W)
+        with torch.inference_mode(), torch.cuda.amp.autocast(enabled=True):
+            for _ in range(3):
+                x_t = torch.from_numpy(x).to(self.device, dtype=self._amp_dtype, non_blocking=True)
+                x_t = x_t.contiguous(memory_format=torch.channels_last)
+                _ = self.model(x_t)
+        print(f"[cnn_model] Ready. Using device: {self.device}, model input (W,H)={self.model_wh}, flip_y={self.flip_y}")
+
         # Precompute normalization constants
         sc = self.nn_cfg.scaling
         self.flow_scale = float(sc.flow_scale) if sc.flow_scale is not None else 1.0
         self.flow_mean = float(sc.flow_mean) if sc.flow_mean is not None else 0.0
 
-        # Warmup
-        with torch.inference_mode():
-            dummy = torch.zeros(1, 2, self.model_wh[1], self.model_wh[0], dtype=self._amp_dtype, device=self.device)
-            _ = self.model(dummy)
+
 
     def _build_model(self, cfg: NNCfg) -> torch.nn.Module:
         if cfg.model.type != "unet_basic":
@@ -187,14 +219,34 @@ class CnnForceSolver:
 
         # Torch tensor (1,2,H,W)
         x = np.stack([vx_n, vy_n], axis=0)[None, ...]  # (1,2,Hm,Wm)
-        x_t = torch.from_numpy(x).to(self.device, dtype=self._amp_dtype)
 
         # Inference
-        with torch.inference_mode():
-            y = self.model(x_t)  # (1,3,Hm,Wm) order [tz, tx, ty]
+        #with torch.inference_mode():
+        with torch.inference_mode(), torch.cuda.amp.autocast(enabled=True):
+            y = None
+
+            #x_t = torch.from_numpy(x).to(self.device, dtype=self._amp_dtype)
+            x_t = torch.from_numpy(x).to(self.device, dtype=self._amp_dtype, non_blocking=True)
+            x_t = x_t.contiguous(memory_format=torch.channels_last)
+            # TODO:  Reuse tensors; no per-frame .from_numpy().to(device)
+
+            #if self.device.type == "cuda":
+            #    self._evt_start.record()
+
+            with self.prof("[cnn] model()"):
+                y = self.model(x_t)  # (1,3,Hm,Wm) order [tz, tx, ty]
+
+            #if self.device.type == "cuda":
+            #    self._evt_end.record()
+            #    torch.cuda.synchronize()
+            #    ms = self._evt_start.elapsed_time(self._evt_end)
+            #    print(f"[cnn] forward {ms:.3f} ms")
+
             # De-scale to raw units (MPa) using the same function as training
             y_raw = nn_inverse_target_scaling(y, self.nn_cfg, device=self.device)  # (1,3,Hm,Wm)
             y_np = y_raw.squeeze(0).detach().float().cpu().numpy()
+
+        self.prof.tick()
 
         tz, tx, ty = y_np[0], y_np[1], y_np[2]  # MPa
 

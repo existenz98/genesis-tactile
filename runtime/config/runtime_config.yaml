@@ -62,7 +62,7 @@ output:
 # ---------- DEBUG DISPLAY (OpenCV windows) ----------
 display:
   enable: true
-  window_scale: 0.7
+  window_scale: 1.0
   wait_key_ms: 1
   
   show_input: true
@@ -92,5 +92,5 @@ display:
   
 
 # ---------- MISC ----------
-downscale: 1.0                # <1 to speed up
+downscale: 0.5                # <1 to speed up
 max_frames: null              # null = unlimited; e.g., 300 to stop after N frames
