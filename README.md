@@ -104,6 +104,8 @@ this will make: A Gaussian normal patch (fz_peak_mpa) + A shear patch (tau_shear
 python src/scripts/run_forward.py --force data/input/force_combo.npz   --config src/config/default.yaml   --xdmf data/output/u.xdmf   --viz_prefix data/output/disp_top   --sample_Nx 80 --sample_Ny 60  --ksp cg --pc gamg --ksp_monitor
 ```
 
+This will load force field data from 'data/input/force_combo.npz', and save FEM result to 'data/output/u.xdmf'.
+
 ### Inverse (displacement/observations → force):
 
 ```bash
@@ -119,6 +121,23 @@ python src/scripts/run_ifem_from_u.py \
 
 ```bash
 python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
+```
+
+Note that if want to generate generate images with deformed state, you need to run the Forward FEM step to generate deformed mesh u.xdmf, and modify renderer.yaml:
+
+from:
+
+```yaml
+deformation:
+  mode: none
+```
+
+to:
+
+```yaml
+deformation:
+  mode: xdmf
+  xdmf_path: <path to u.xdmf>
 ```
 
 ### Generate Dataset for training

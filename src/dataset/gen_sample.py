@@ -226,7 +226,8 @@ def main():
     # 4) render Camera observation images, I0 (undeformed) and I1 (deformed)
     I0 = args.outdir / "I0.png"
     I1 = args.outdir / "I1.png"
-    # undeformed (mode: none)
+
+    # render undeformed (mode: none)
     cmd_ren0 = [
         sys.executable, "src/scripts/render_camera_frame.py",
         "--config", str(args.renderer),
@@ -235,19 +236,19 @@ def main():
         "--supersample", "2",
     ]
     subprocess.run(cmd_ren0, check=True)
-    # deformed (mode: xdmf reads sidecar DOFs)
+
+    # render deformed (mode: xdmf reads sidecar DOFs)
     # renderer.yaml must have deformation.mode: xdmf and xdmf_path will be set here by env var
-    # or we can temporary patch: copy renderer to a temp file with deformation path
     with open(args.renderer, "r") as f:
         ren_cfg = yaml.safe_load(f)
-    ren_cfg = dict(ren_cfg)  # copy
-    ren_cfg["deformation"] = {"mode": "xdmf", "xdmf_path": str(xdmf)}
-    rtmp = args.outdir / "renderer_used.yaml"
+    ren_cfg = dict(ren_cfg)     # make a copy of config
+    ren_cfg["deformation"] = {"mode": "xdmf", "xdmf_path": str(xdmf)}   # add deformation files
+    rtmp = args.outdir / "renderer_used.yaml"   # save new config file (with deformation)
     with open(rtmp, "w") as f:
         yaml.safe_dump(ren_cfg, f)
     cmd_ren1 = [
         sys.executable, "src/scripts/render_camera_frame.py",
-        "--config", str(rtmp),
+        "--config", str(rtmp),                  # use new config file (with deformation)
         "--out", str(I1),
         "--seed", str(args.seed),
         "--supersample", "2",

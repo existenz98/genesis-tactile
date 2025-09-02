@@ -1,0 +1,38 @@
+camera:
+  model: pinhole
+  img_wh: [640, 480]
+  z_ref_mm: 20.0
+  z_cam_mm: 20.0
+
+# Visible area in mm (maps to full image box; orthographic approx for this renderer)
+view_mm: [40.0, 30.0]
+
+# Neutral gray when the surface is flat (no indentation)
+background_gray: 180   # 0..255
+
+lighting:
+  # Unit directions in camera/world frame (x right, y down, z up)
+  # Symmetric example: azimuths 0°, 120°, 240°, same elevation → z>0
+  dir_r: [ 0.577,  0.000, 0.816 ]
+  dir_g: [-0.289,  0.500, 0.816 ]
+  dir_b: [-0.289, -0.500, 0.816 ]
+  gains_rgb: null      # if null, auto-computed so flat normal → background_gray
+
+surface:
+  z_mm: 3.9      # check 'default.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.
+
+markers:
+  spacing_mm: 1.0
+  radius_px: 2
+  color_bgr: [0, 0, 0]
+  jitter_px: 0
+
+deformation:
+  mode: none            # "none" | "xdmf"
+  xdmf_path: data/output/u.xdmf
+
+render:
+  grid_downsample: 1    # 1 = per-pixel normals; >1 to speed up (normals computed at lower res)
+  save_normal_map: false
+  save_depth_map: false
+  save_flow_from_markers: true
