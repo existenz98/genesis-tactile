@@ -51,6 +51,8 @@ class DeformField:
 
     def load(self):
         if self.mode == "xdmf":
+            print("[DeformField] Loading XDMF deformation field from:", self.xdmf_path)
+
             assert dolfinx is not None, "dolfinx is required for xdmf deformation"
             assert self.xdmf_path is not None, "xdmf_path must be set for xdmf mode"
 
