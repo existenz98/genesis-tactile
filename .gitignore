@@ -13,17 +13,12 @@ __pycache__/
 .idea/
 
 # Data & cache
+data/
 data/output/
 data/cache/
 data/raw/
 dataset/*
 outputs/*
-*.npz
-*.npy
-*.png
-*.jpg
-*.gif
-*.mp4
 
 # OS
 .DS_Store
