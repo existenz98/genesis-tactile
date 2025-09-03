@@ -1,0 +1,32 @@
+camera:
+  model: pinhole
+  img_wh: [640, 480]
+  z_ref_mm: 20.0
+  z_cam_mm: 20.0
+
+# Visible area in mm (mapped to full image at z_ref_mm)
+view_mm: [40.0, 30.0]
+
+surface:
+  z_mm: 3.9    # reflective dot plane height (top surface of gel)
+
+mirror:
+  enabled: true        # set true to enable mirror-based stereo
+  baseline_mm: 6.0      # effective horizontal baseline between virtual viewpoints
+  panel_gap_px: 12      # gap between left/right panels in the composite image
+  flip_left: false      # set true if you want the left panel to be horizontally flipped
+
+# Background and dot appearance
+background_bgr: [60, 20, 20]    # dark bluish
+dots:
+  spacing_mm: 2.23               # grid spacing
+  diameter_mm: 1.0              # physical printed dot diameter
+  margin_mm: 0.8                # keepout from the viewbox edges
+  color_bgr: [255, 230, 230]    # bright slightly bluish white
+
+deformation:
+  mode: none                    # "none" | "xdmf"
+  xdmf_path: data/output/u.xdmf
+
+# Optional oversampling for smoother circles (draw at x2 and downsample)
+supersample: 2

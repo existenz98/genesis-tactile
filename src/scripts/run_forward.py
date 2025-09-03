@@ -25,7 +25,7 @@ Forward solve: surface traction (MPa) -> displacement field (mm).
 Usage example:
   python src/scripts/run_forward.py \
     --force data/input/force_combo.npz \
-    --config src/config/default.yaml \
+    --config src/config/material.yaml \
     --xdmf data/output/u.xdmf \
     --viz_prefix data/output/disp_top \
     --sample_Nx 60 --sample_Ny 40
@@ -33,7 +33,7 @@ Usage example:
 Fast:
   python src/scripts/run_forward.py \
     --force data/input/force_combo.npz \
-    --config src/config/default.yaml \
+    --config src/config/material.yaml \
     --xdmf data/output/u.xdmf \
     --viz_prefix data/output/disp_top \
     --sample_Nx 60 --sample_Ny 40 \
@@ -102,7 +102,7 @@ def load_force_npz(path: Path) -> Dict[str, np.ndarray]:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Forward FEM (traction -> displacement).")
     p.add_argument("--force", type=Path, required=True, help="NPZ with (X_mm,Y_mm,fx,fy,fz) in MPa.")
-    p.add_argument("--config", type=Path, default=Path("src/config/default.yaml"), help="YAML config.")
+    p.add_argument("--config", type=Path, default=Path("src/config/material.yaml"), help="YAML config.")
     p.add_argument("--xdmf", type=Path, default=Path("data/output/u.xdmf"), help="Output XDMF for u.")
     p.add_argument("--viz_prefix", type=Path, default=Path("data/output/disp_top"), help="Prefix for PNGs.")
     p.add_argument("--sample_Nx", type=int, default=60, help="Sampling grid on top-surface (x).")

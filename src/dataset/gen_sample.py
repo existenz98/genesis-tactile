@@ -30,7 +30,7 @@ Generate ONE dataset sample:
 Example:
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000001 \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --mode pressure --gauss_sigma_min_mm 1.0 --gauss_sigma_max_mm 4.0   --fz_peak_min_mpa 0.05 --fz_peak_max_mpa 0.15   \
     --n_balls 2   --seed 123 \
@@ -39,7 +39,7 @@ python src/dataset/gen_sample.py \
 
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
@@ -47,14 +47,14 @@ python src/dataset/gen_sample.py \
     --debug_show
 
 python src/dataset/gen_sample.py  \
-    --outdir dataset/val/000002     --material src/config/default.yaml     --renderer src/config/renderer.yaml  \
+    --outdir dataset/val/000002     --material src/config/material.yaml     --renderer src/config/renderer.yaml  \
     --mode torque  \
     --n_balls 1  --seed 42 \
     --save_flow
 
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000002 \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --mode combo \
     --n_balls 2 --seed 100 \

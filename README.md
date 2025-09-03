@@ -101,7 +101,7 @@ this will make: A Gaussian normal patch (fz_peak_mpa) + A shear patch (tau_shear
 ### Forward FEM (force → displacement):
 
 ```bash
-python src/scripts/run_forward.py --force data/input/force_combo.npz   --config src/config/default.yaml   --xdmf data/output/u.xdmf   --viz_prefix data/output/disp_top   --sample_Nx 80 --sample_Ny 60  --ksp cg --pc gamg --ksp_monitor
+python src/scripts/run_forward.py --force data/input/force_combo.npz   --config src/config/material.yaml   --xdmf data/output/u.xdmf   --viz_prefix data/output/disp_top   --sample_Nx 80 --sample_Ny 60  --ksp cg --pc gamg --ksp_monitor
 ```
 
 This will load force field data from 'data/input/force_combo.npz', and save FEM result to 'data/output/u.xdmf'.
@@ -112,16 +112,45 @@ This will load force field data from 'data/input/force_combo.npz', and save FEM 
 python src/scripts/run_ifem_from_u.py \
   --mesh data/output/u.xdmf \
   --dofs data/output/u.dofs.npz \
-  --config src/config/default.yaml \
+  --config src/config/material.yaml \
   --Nx 80 --Ny 60 \
   --pc jacobi --ksp cg --ksp_rtol 1e-7 --ksp_atol 0 --ksp_monitor
 ```
 
-### Render synthetic camera frames (gel with RGB particles @ 3 layers):
+### Render synthetic images
+
+#### 1. old way : render_camera_frame.py
+
+Can only support **Particle style sensor**
 
 ```bash
 python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
 ```
+
+#### 2. new way : render_sensor_frame.py
+
+Supports **All sensor types, including Particle, Gelsight**
+
+**Particle style sensor**
+
+```bash
+python src/scripts/render_sensor_frame.py \
+  --sensor particle_vts \
+  --config src/config/renderer.yaml \
+  --out data/output/render_pts.png \
+  --seed 123 \
+  --supersample 2
+```
+
+**Gelsight style sensor**
+
+```bash
+python src/scripts/render_sensor_frame.py \
+  --sensor gelsight_style \
+  --config src/config/renderer_gelsight.yaml \
+  --out data/output/render_gs.png
+```
+
 
 Note that if want to generate generate images with deformed state, you need to run the Forward FEM step to generate deformed mesh u.xdmf, and modify renderer.yaml:
 
@@ -140,6 +169,8 @@ deformation:
   xdmf_path: <path to u.xdmf>
 ```
 
+
+
 ### Generate Dataset for training
 
 Single sample test:
@@ -147,7 +178,7 @@ Single sample test:
 ```bash
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
@@ -160,7 +191,7 @@ Generate dataset (many samples, in parallel):
 ```bash
 python src/dataset/gen_dataset.py \
     --root dataset/train \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \

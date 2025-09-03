@@ -24,7 +24,7 @@ Generate Dataset by spawning many per-sample processes.
 Example:
   python src/dataset/gen_dataset.py \
     --root dataset/train \
-    --material src/config/default.yaml \
+    --material src/config/material.yaml \
     --renderer src/config/renderer.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \
