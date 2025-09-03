@@ -33,7 +33,7 @@ Example:
   python src/scripts/run_ifem_from_u.py \
     --mesh data/output/u.xdmf \
     --dofs data/output/u.dofs.npz \
-    --config src/config/default.yaml \
+    --config src/config/material.yaml \
     --Nx 60 --Ny 40 \
     --out data/output/traction_from_u.npz \
     --preview_prefix data/output/traction_from_u \
@@ -42,7 +42,7 @@ Example:
   python src/scripts/run_ifem_from_u.py \
     --mesh data/output/u.xdmf \
     --dofs data/output/u.dofs.npz \
-    --config src/config/default.yaml \
+    --config src/config/material.yaml \
     --Nx 60 --Ny 40 \
     --pc jacobi --ksp cg --ksp_rtol 1e-7 --ksp_atol 0 --ksp_monitor
 

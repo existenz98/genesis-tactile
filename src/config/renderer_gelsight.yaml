@@ -19,7 +19,7 @@ lighting:
   gains_rgb: null      # if null, auto-computed so flat normal → background_gray
 
 surface:
-  z_mm: 3.9      # check 'default.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.
+  z_mm: 3.9      # check 'material.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.
 
 markers:
   spacing_mm: 1.0
