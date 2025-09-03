@@ -1,20 +1,26 @@
 # -----------------------------------------------------------------------------
-# Copyright (c) 2025 Yue Fei <feiyuefy@gmail.com>
-# All rights reserved.
+# 3D Visualizer — Application Source
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025 Yue Fei <feiyuefy@gmail.com>
 #
-# This source code is licensed under the BSD 3-Clause License found in the
-# LICENSE file in the root directory of this source tree.
+# License (Code):
+#   This source file is MIT-licensed. See LICENSE-APPS-MIT.
 #
-# Patent Notice:
-#   This software is provided under copyright only.
-#   No license to any patents is granted or implied.
-#   Users are responsible for ensuring that their use of this software,
-#   especially in commercial applications, does not infringe on any
-#   third-party patents (e.g., tactile sensor hardware, methods).
+# Brand & UI Assets (Not MIT-licensed):
+#   Project name, logo(s), icons, UI themes/skins, and other brand assets are
+#   NOT licensed under MIT. Use requires a separate license. See:
+#     - LICENSE-APPS-ASSETS
+#     - TRADEMARKS.md
 #
-# Citation:
-#   If you use this code in academic work, please cite the associated
-#   publication(s) when available.
+# Patents:
+#   Except as may be granted under the applicable open-source license, no patent
+#   rights are granted or implied. Users are responsible for third-party patent
+#   clearances.
+#
+# Notes:
+#   - Redistribution must retain this header and the referenced license files.
+#   - Forks may not imply endorsement or use the original branding without
+#     permission (see TRADEMARKS.md).
 # -----------------------------------------------------------------------------
 
 

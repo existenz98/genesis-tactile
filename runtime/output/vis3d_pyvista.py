@@ -1,20 +1,28 @@
 # -----------------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later WITH LicenseRef-YF-Device-Interface-Exception
 # Copyright (c) 2025 Yue Fei <feiyuefy@gmail.com>
-# All rights reserved.
 #
-# This source code is licensed under the BSD 3-Clause License found in the
-# LICENSE file in the root directory of this source tree.
+# This file is part of the Runtime of the tactile vision platform.
+# Licensed under the GNU Affero General Public License v3.0 or later.
+# See LICENSE-RUNTIME-AGPL for details.
+#
+# Special Exception (Device Interface Exception):
+#   Proprietary or separately-licensed device drivers or hardware interface
+#   modules that communicate with the Runtime solely through the documented
+#   TSI/plugin/IPC interfaces are not considered derivative works of the
+#   Runtime by this project, and thus are not subject to the copyleft
+#   obligations of the AGPL, provided they do not include or modify Runtime code.
+#   See LICENSE-EXCEPTIONS for the full text.
 #
 # Patent Notice:
-#   This software is provided under copyright only.
-#   No license to any patents is granted or implied.
-#   Users are responsible for ensuring that their use of this software,
-#   especially in commercial applications, does not infringe on any
-#   third-party patents (e.g., tactile sensor hardware, methods).
+#   Except for any rights granted under the applicable open-source license,
+#   no patent license is granted or implied. Users are responsible for ensuring
+#   their use does not infringe third-party patents (e.g., tactile sensor
+#   hardware or methods).
 #
 # Citation:
-#   If you use this code in academic work, please cite the associated
-#   publication(s) when available.
+#   If you use this software in academic work, please cite the associated
+#   publications when available.
 # -----------------------------------------------------------------------------
 
 

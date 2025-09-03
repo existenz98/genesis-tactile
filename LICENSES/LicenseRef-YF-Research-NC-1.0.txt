@@ -1,0 +1,43 @@
+YF Research & Non-Commercial License v1.0 (LicenseRef-YF-Research-NC-1.0)
+
+1. Grant. Subject to the terms below, you are granted a worldwide, royalty-free,
+   non-exclusive license to use, reproduce, modify, and distribute the Software
+   and derivative works for academic research and other Non-Commercial Use only.
+
+2. Non-Commercial Use. "Non-Commercial Use" means use that is not intended for
+   or directed toward commercial advantage or monetary compensation, and excludes
+   (a) production use in or for a product or service; (b) any internal use that
+   supports a commercial product or service offered to third parties; or (c)
+   providing the Software as a hosted or managed service to third parties.
+
+3. Commercial Use. Any use outside of Non-Commercial Use ("Commercial Use")
+   requires a separate written license from the copyright holder. Please contact
+   <feiyuefy@gmail.com> for commercial licensing.
+
+4. Redistribution. You may redistribute the Software (in source or object form)
+   for Non-Commercial Use, provided you (a) include this license text and
+   copyright notice; and (b) clearly mark modifications and their dates.
+
+5. No Patent License. Except as may be required by applicable law, no patent
+   license is granted or implied. You are responsible for third-party patent
+   clearance (e.g., tactile sensor hardware or methods).
+
+6. No Trademark License. No rights to use any names, logos, or trademarks of the
+   copyright holder are granted.
+
+7. Disclaimer of Warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+   ANY KIND, EXPRESS OR IMPLIED.
+
+8. Limitation of Liability. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+   ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT,
+   OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+9. Termination. This license terminates automatically upon any breach. Upon
+   termination, you must cease all use and destroy copies in your possession.
+
+10. Governing Law. No provision herein shall be construed to limit any rights
+    that cannot be limited under applicable law. Venue and governing law shall be
+    as agreed in any separate commercial license or, absent such agreement, as
+    determined by a competent court.
+

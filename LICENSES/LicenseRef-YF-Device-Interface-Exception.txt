@@ -1,0 +1,26 @@
+YF Device Interface Exception (LicenseRef-YF-Device-Interface-Exception) v1.0
+
+In addition to the terms of the GNU Affero General Public License v3.0 or later
+applicable to the Runtime, the copyright holder grants you the following
+additional permission:
+
+You may develop, use, and distribute proprietary or separately-licensed software
+that implements device drivers or hardware interface modules (collectively,
+"Drivers") which communicate with the Runtime solely through the documented
+public interfaces of this project (e.g., the TSI C API, plugin ABI, IPC/gRPC
+protocols, and related header and stub files provided for that purpose).
+Such Drivers are not considered derivative works of the Runtime by this project
+and are therefore not subject to the copyleft requirements of the AGPL,
+provided that:
+  (a) the Driver does not include, incorporate, or modify any Runtime code;
+  (b) the Driver does not link against non-public/internal symbols of the Runtime;
+  (c) the Driver uses only the documented public interfaces intended for Driver integration.
+
+This Exception does not grant any license to patents, trademarks, or any other
+intellectual property of the copyright holder beyond the above permission.
+Distribution of the Runtime or any modified version remains subject to the AGPL.
+
+If you violate the terms of this Exception or the AGPL, your rights under this
+Exception automatically terminate. This Exception is versioned; future versions
+may be published. You may choose to comply with either the version you received
+or any later version published by the copyright holder.

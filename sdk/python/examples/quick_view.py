@@ -1,26 +1,24 @@
 # -----------------------------------------------------------------------------
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # Copyright (c) 2025 Yue Fei <feiyuefy@gmail.com>
-# All rights reserved.
 #
-# This source code is licensed under the BSD 3-Clause License found in the
-# LICENSE file in the root directory of this source tree.
+# This SDK is licensed under the GNU Lesser General Public License v3.0 or later.
+# You may link this library with proprietary applications under the terms of the LGPL.
+# Modifications to the SDK itself must be released under the same license when distributed.
+# See LICENSE-SDK-LGPL for details.
 #
 # Patent Notice:
-#   This software is provided under copyright only.
-#   No license to any patents is granted or implied.
-#   Users are responsible for ensuring that their use of this software,
-#   especially in commercial applications, does not infringe on any
-#   third-party patents (e.g., tactile sensor hardware, methods).
+#   Except for rights granted under the LGPL, no patent license is granted or implied.
+#   Users are responsible for third-party patent clearance.
 #
 # Citation:
-#   If you use this code in academic work, please cite the associated
-#   publication(s) when available.
+#   Please cite associated publications when available.
 # -----------------------------------------------------------------------------
 
 
 import cv2, time, argparse, numpy as np
 
-from tacto6d import Tacto6DClient, ClientConfig
+from tactile_3d import Tacto6DClient, ClientConfig
 
 
 def flow_to_color_bgr(vy, vx, max_flow=None):
