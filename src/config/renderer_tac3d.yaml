@@ -9,12 +9,16 @@ view_mm: [40.0, 30.0]
 
 surface:
   z_mm: 3.9    # reflective dot plane height (top surface of gel)
+  translation_mm: [-10.0, 0.0, 0.0]   # Move surface 10 mm to the left along the X axis
+  tilt:               # set to zero for no tilt
+    rx_deg: 0.0       # rotation about world/camera X (x right)
+    ry_deg: 30.0      # rotation about world/camera Y (y down)
+    rz_deg: 0.0       # in-plane rotation about Z (z up)
 
 mirror:
-  enabled: true        # set true to enable mirror-based stereo
-  baseline_mm: 6.0      # effective horizontal baseline between virtual viewpoints
-  panel_gap_px: 12      # gap between left/right panels in the composite image
-  flip_left: false      # set true if you want the left panel to be horizontally flipped
+  enabled: true         # set true to enable mirror-based stereo
+  plane_normal: [-1.0, 0.0, 0.0]          # vertical plane, normal along -X
+  plane_point_mm: [17.0, 15.0, 0.0]       # mirror plane located left of camera center (camera at X=20, because view_mm[0]=40)
 
 # Background and dot appearance
 background_bgr: [60, 20, 20]    # dark bluish

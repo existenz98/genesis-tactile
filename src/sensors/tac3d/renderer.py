@@ -43,7 +43,6 @@ import cv2
 from ..base import FEMOutputs, FrameBundle, Scene, SensorRenderer
 from ..registry import register_sensor
 
-# Reuse your existing camera + FEM sampler
 from synth.camera import PinholeCamera
 from synth.deform import DeformField
 
@@ -89,21 +88,70 @@ def _regular_dot_grid_xy0(
     return Xg, Yg
 
 
-def _render_panel_image(
-    cam: PinholeCamera,
-    img_w: int,
-    img_h: int,
-    def_px: np.ndarray,
-    rad_px_def: np.ndarray,
-    dot_color: Tuple[int, int, int],
-    bg_bgr: Tuple[int, int, int],
-    supersample: int,
-) -> np.ndarray:
+def _euler_deg_to_R(rx_deg: float, ry_deg: float, rz_deg: float, order: str = "ZYX") -> np.ndarray:
+    """Rotation matrix R from Euler angles in degrees. Default order: R = Rz * Ry * Rx."""
+    rx = np.deg2rad(rx_deg); ry = np.deg2rad(ry_deg); rz = np.deg2rad(rz_deg)
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+    Rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=np.float32)
+    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], dtype=np.float32)
+    Rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], dtype=np.float32)
+    M = {"X": Rx, "Y": Ry, "Z": Rz}
+    R = np.eye(3, dtype=np.float32)
+    for ax in order:
+        R = M[ax] @ R
+    return R.astype(np.float32)
+
+
+def _apply_surface_pose(Xg: np.ndarray, Yg: np.ndarray, z_surf: float, Lx: float, Ly: float,
+                        R: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """
+    Map gel-frame top-surface points (x,y,z_surf) to world frame with pose (R,t).
+    Xg, Yg: (Ny,Nx). Returns (N,3) world coords.
+    """
+    # local coords relative to the gel-frame center (x_c, y_c, z_surf)
+    x0 = (Xg - 0.5 * Lx).ravel()
+    y0 = (Yg - 0.5 * Ly).ravel()
+    z0 = np.zeros_like(x0, dtype=np.float32)
+    P_local = np.stack([x0, y0, z0], axis=-1).astype(np.float32)  # (N,3)
+    Pw = (P_local @ R.T) + t[None, :]  # (N,3)
+    return Pw.astype(np.float32)
+
+
+def _apply_surface_pose_with_disp(Xg: np.ndarray, Yg: np.ndarray, z_surf: float, Lx: float, Ly: float,
+                                  R: np.ndarray, t: np.ndarray,
+                                  disp_gel: np.ndarray) -> np.ndarray:
+    """
+    Map gel-frame displaced points (x+ux, y+uy, z_surf+uz) to world frame.
+    disp_gel: (N,3) displacement in gel frame at (x,y,z_surf).
+    """
+    x0 = (Xg - 0.5 * Lx).ravel()
+    y0 = (Yg - 0.5 * Ly).ravel()
+    # local displaced vector in gel frame
+    P_local_def = np.stack([x0, y0, np.zeros_like(x0)], axis=-1).astype(np.float32) + disp_gel
+    Pw = (P_local_def @ R.T) + t[None, :]
+    return Pw.astype(np.float32)
+
+
+def _reflect_points_across_plane(P: np.ndarray, plane_point: np.ndarray, plane_normal: np.ndarray) -> np.ndarray:
+    """
+    Reflect 3D points P across a plane (n•(x - p) = 0).
+    plane_normal must be unit length, shapes: P (N,3), p (3,), n (3,)
+    """
+    n = plane_normal.astype(np.float32)
+    n = n / max(1e-12, float(np.linalg.norm(n)))
+    v = P - plane_point[None, :]
+    d = (v @ n)[:, None]  # (N,1)
+    return (P - 2.0 * d * n[None, :]).astype(np.float32)
+
+
+def _render_panel(img_w: int, img_h: int, def_px: np.ndarray, rad_px: np.ndarray,
+                  dot_color: Tuple[int, int, int], bg_bgr: Tuple[int, int, int], supersample: int) -> np.ndarray:
     """Draw a dot panel into an image with optional supersampling."""
     ss = max(1, int(supersample))
     Wss, Hss = img_w * ss, img_h * ss
-    canvas = np.zeros((Hss, Wss, 3), dtype=np.uint8)
-    canvas[...] = np.array(bg_bgr, dtype=np.uint8).reshape(1, 1, 3)
+    canvas = np.full((Hss, Wss, 3), np.array(bg_bgr, dtype=np.uint8).reshape(1, 1, 3), dtype=np.uint8)
 
     def draw_circle(u: float, v: float, r: float):
         uu = int(round(u * ss))
@@ -112,93 +160,87 @@ def _render_panel_image(
         if 0 <= uu < Wss and 0 <= vv < Hss:
             cv2.circle(canvas, (uu, vv), rr, dot_color, thickness=-1, lineType=cv2.LINE_AA)
 
-    for (u, v), rpx in zip(def_px, rad_px_def):
+    for (u, v), rpx in zip(def_px, rad_px):
         draw_circle(float(u), float(v), float(rpx))
 
-    if ss > 1:
-        return cv2.resize(canvas, (img_w, img_h), interpolation=cv2.INTER_AREA)
-    return canvas
+    return cv2.resize(canvas, (img_w, img_h), interpolation=cv2.INTER_AREA) if ss > 1 else canvas
 
 
 # ----------------------------- renderer class --------------------------------
 @register_sensor("tac3d")
 class Tac3DRenderer(SensorRenderer):
     """
-    Acorn Tac3D-style renderer:
-      - Big circular dots on a regular grid at membrane plane z = surface.z_mm
-      - XY from dot-center displacement (pixels)
-      - Z from dot size via perspective scaling: r_px ∝ 1 / Z (non-telecentric pinhole)
+    Acorn Tac3D-style renderer with:
+      - Big circular dot grid on a membrane
+      - Optional planar mirror → two-panel catadioptric stereo
+      - Optional membrane tilt (Euler ZYX, deg)
 
-    Mirror-stereo mode:
-      - Two virtual viewpoints with a horizontal baseline are rendered as two panels
-        (left and right) in a single composite image.
+    Geometry is physically consistent so that later triangulation using the
+    provided metadata (intrinsics, surface pose, mirror plane, camera centers)
+    reproduces the same 3D points.
 
-    Modalities (superset; some keys present only when mirror.enabled=true):
-      image_bgr                           : (H, W_out, 3) uint8
-      dots_rest_px / def_px               : (N,2) float32         [single-panel mode]
-      dots_rest_xyz / def_xyz             : (N,3) float32 (mm)
-      dot_radius_px_rest/def              : (N,)  float32
+    Modalities (superset; some keys present only in mirror mode):
+      image_bgr                        : (H, W_out, 3) uint8
+      dots_rest_xyz / dots_def_xyz     : (N,3) world (mm)
+      dots_rest_px / dots_def_px       : (N,2) float32 (single-panel)
+      dot_radius_px_rest/def           : (N,)  float32
 
-      dots_rest_px_left / def_px_left     : (N,2) float32         [mirror mode]
-      dots_rest_px_right / def_px_right   : (N,2) float32
-      dot_radius_px_rest_left/def_left    : (N,)  float32
-      dot_radius_px_rest_right/def_right  : (N,)  float32
+      dots_*_px_left[_panel], dots_*_px_right[_panel] : (N,2) float32 (mirror mode)
+      dot_radius_px_*_left/right        : (N,) float32
     """
 
     def name(self) -> str:
         return "tac3d"
 
     def version(self) -> str:
-        return "0.2.0"
+        return "0.3.0"
 
-    def modalities(self) -> Dict[str, str]:
-        # Superset description; not all keys appear every time.
-        return {
-            "image_bgr": "HxWx3 uint8 (OpenCV BGR, single or composite)",
-            "dots_rest_px": "Nx2 float32",
-            "dots_def_px": "Nx2 float32",
-            "dots_rest_xyz": "Nx3 float32 (mm)",
-            "dots_def_xyz": "Nx3 float32 (mm)",
-            "dot_radius_px_rest": "N float32",
-            "dot_radius_px_def": "N float32",
-            "dots_rest_px_left": "Nx2 float32",
-            "dots_def_px_left": "Nx2 float32",
-            "dots_rest_px_right": "Nx2 float32",
-            "dots_def_px_right": "Nx2 float32",
-            "dot_radius_px_rest_left": "N float32",
-            "dot_radius_px_def_left": "N float32",
-            "dot_radius_px_rest_right": "N float32",
-            "dot_radius_px_def_right": "N float32",
-        }
-
+    # ---------------------------------------------------------------------
     def render_frame(self, fem: FEMOutputs, scene: Scene) -> FrameBundle:
         cfg = dict(self.cfg or {})
 
-        # --- Camera & view ---
+        # ---- Camera & view ----
         cam: Optional[PinholeCamera] = getattr(scene, "camera", None)
         view_wh = cfg.get("view_mm", [40.0, 30.0])
-        Lx_mm, Ly_mm = float(view_wh[0]), float(view_wh[1])
+        Lx, Ly = float(view_wh[0]), float(view_wh[1])
 
         if cam is None:
             cam_cfg = cfg.get("camera", {})
             if not cam_cfg:
                 raise ValueError("Missing 'camera' config and Scene.camera is None.")
-            cam = _build_camera_from_cfg(cam_cfg, (Lx_mm, Ly_mm))
+            cam = _build_camera_from_cfg(cam_cfg, (Lx, Ly))
         else:
             cam_cfg = cfg.get("camera", {"img_wh": [cam.img_w, cam.img_h]})
 
         img_w, img_h = int(cam_cfg["img_wh"][0]), int(cam_cfg["img_wh"][1])
 
-        # --- Surface (membrane) Z ---
-        surf_cfg = cfg.get("surface", {})
-        z_surf_mm = float(surf_cfg.get("z_mm", 0.0))  # e.g., 4.0 mm (top surface)
+        # Real camera center in world coords (matches PinholeCamera.project_mm)
+        C = np.array([0.5 * Lx, 0.5 * Ly, -float(cam.z_cam_mm)], dtype=np.float32)
 
-        # --- Dots & colors ---
+        # ---- Surface pose ----
+        surf_cfg = cfg.get("surface", {})
+        translation_mm = np.array(surf_cfg.get("translation_mm", [0.0, 0.0, 0.0]), dtype=np.float32)
+        z_surf = float(surf_cfg.get("z_mm", 0.0))
+        tilt_cfg = surf_cfg.get("tilt", {})
+
+        # Rotation matrix of the surface
+        rx = float(tilt_cfg.get("rx_deg", 0.0))
+        ry = float(tilt_cfg.get("ry_deg", 0.0))
+        rz = float(tilt_cfg.get("rz_deg", 0.0))
+        R = _euler_deg_to_R(rx, ry, rz, order="ZYX")
+
+        # Center of the surface (before any movement)
+        surface_center = np.array([0.5 * Lx, 0.5 * Ly, z_surf], dtype=np.float32)
+
+        # Apply translation to move the center of the surface (e.g., move it 3 mm to the left)
+        new_surface_center = surface_center + translation_mm
+
+        # ---- Dots & appearance ----
         dots_cfg = cfg.get("dots", {})
         spacing_mm = float(dots_cfg.get("spacing_mm", 1.6))
         diameter_mm = float(dots_cfg.get("diameter_mm", 0.9))
         margin_mm = float(dots_cfg.get("margin_mm", 0.8))
-        dot_color = tuple(int(c) for c in dots_cfg.get("color_bgr", [245, 245, 255]))  # bright slightly bluish white
+        dot_color = tuple(int(c) for c in dots_cfg.get("color_bgr", [245, 245, 255]))
 
         bg_bgr = tuple(int(c) for c in cfg.get("background_bgr", [20, 20, 60]))
         supersample = int(cfg.get("supersample", 2))
@@ -206,162 +248,147 @@ class Tac3DRenderer(SensorRenderer):
         # --- Mirror-stereo config ---
         mirror_cfg = cfg.get("mirror", {})
         mirror_enabled = bool(mirror_cfg.get("enabled", False))
-        baseline_mm = float(mirror_cfg.get("baseline_mm", 6.0))   # distance between (virtual) left/right camera centers
-        panel_gap_px = int(mirror_cfg.get("panel_gap_px", 12))
-        flip_left = bool(mirror_cfg.get("flip_left", False))      # optional: left panel horizontal flip
+        plane_n = np.asarray(mirror_cfg.get("plane_normal", [1.0, 0.0, 0.0]), dtype=np.float32)
+        plane_p = np.asarray(mirror_cfg.get("plane_point_mm", [0.5 * Lx + 3.0, 0.5 * Ly, 0.0]), dtype=np.float32)
+        # normalize
+        if mirror_enabled:
+            plane_n = plane_n / max(1e-12, float(np.linalg.norm(plane_n)))
 
-        # --- Deformation field ---
+        # ---- FEM deformation ----
         def_cfg = cfg.get("deformation", {"mode": "none"})
         field = _build_deform_field_from_cfg(def_cfg)
 
-        # --- Build dot grid (rest) at Z=z_surf_mm in [0,Lx]×[0,Ly] coords ---
-        Xg, Yg = _regular_dot_grid_xy0(Lx_mm, Ly_mm, spacing_mm, margin_mm)  # (Ny,Nx)
+        # Build dot grid in gel frame (top surface z=z_surf)
+        Xg, Yg = _regular_dot_grid_xy0(Lx, Ly, spacing_mm, margin_mm)  # (Ny,Nx)
         Ny, Nx = Xg.shape
         N = Ny * Nx
 
-        rest_xyz = np.stack(
-            [Xg.ravel(), Yg.ravel(), np.full(N, z_surf_mm, dtype=np.float32)],
-            axis=-1
-        ).astype(np.float32)
-
+        # Sample displacement in GEL frame at (x,y,z_surf)
+        P_gel = np.stack([Xg.ravel(), Yg.ravel(), np.full(N, z_surf, dtype=np.float32)], axis=-1)
         if field.mode != "none":
-            disp = field.sample(rest_xyz).astype(np.float32)  # (N,3) mm
+            disp_gel = field.sample(P_gel).astype(np.float32)  # (N,3) in gel axes
         else:
-            disp = np.zeros_like(rest_xyz, dtype=np.float32)
-        def_xyz = rest_xyz + disp
+            disp_gel = np.zeros_like(P_gel, dtype=np.float32)
 
-        # -------------------- Single-panel (legacy) path ---------------------
+        # World positions (rest/def) with surface pose
+        rest_xyz_w = _apply_surface_pose(Xg, Yg, z_surf, Lx, Ly, R, new_surface_center)                        # (N,3)
+        def_xyz_w  = _apply_surface_pose_with_disp(Xg, Yg, z_surf, Lx, Ly, R, new_surface_center, disp_gel)    # (N,3)
+
+        # ----------------------------- single panel -----------------------------
         if not mirror_enabled:
-            # Project via the main camera
-            rest_px, Z_rest = cam.project_mm(rest_xyz)  # (N,2), (N,)
-            def_px,  Z_def  = cam.project_mm(def_xyz)   # (N,2), (N,)
+            rest_px, Z_rest = cam.project_mm(rest_xyz_w)
+            def_px,  Z_def  = cam.project_mm(def_xyz_w)
 
             r_mm = np.full((N,), 0.5 * diameter_mm, dtype=np.float32)
             rad_px_rest = cam.radius_mm_to_px(r_mm, Z_rest).astype(np.float32)
             rad_px_def  = cam.radius_mm_to_px(r_mm, Z_def ).astype(np.float32)
 
-            img_bgr = _render_panel_image(cam, img_w, img_h, def_px, rad_px_def, dot_color, bg_bgr, supersample)
+            img = _render_panel(img_w, img_h, def_px, rad_px_def, dot_color, bg_bgr, supersample)
 
             modalities: Dict[str, Any] = {
-                "image_bgr": img_bgr,
+                "image_bgr": img,
                 "dots_rest_px": rest_px.astype(np.float32),
-                "dots_def_px": def_px.astype(np.float32),
-                "dots_rest_xyz": rest_xyz.astype(np.float32),
-                "dots_def_xyz": def_xyz.astype(np.float32),
+                "dots_def_px":  def_px.astype(np.float32),
+                "dots_rest_xyz": rest_xyz_w.astype(np.float32),
+                "dots_def_xyz":  def_xyz_w.astype(np.float32),
                 "dot_radius_px_rest": rad_px_rest,
-                "dot_radius_px_def": rad_px_def,
+                "dot_radius_px_def":  rad_px_def,
             }
-
             meta = {
-                "renderer": self.name(),
-                "version": self.version(),
-                "mode": "single_panel",
-                "image_size": (img_w, img_h),
-                "grid_shape": (Ny, Nx),
-                "spacing_mm": spacing_mm,
-                "diameter_mm": diameter_mm,
-                "surface_z_mm": z_surf_mm,
+                "renderer": self.name(), "version": self.version(), "mode": "single_panel",
+                "image_size": (img_h, img_w), "grid_shape": (Ny, Nx),
+                "spacing_mm": spacing_mm, "diameter_mm": diameter_mm,
+                "surface": {"z_mm": z_surf, "R": R.tolist(), "t": t.tolist(),
+                            "tilt_deg": {"rx": rx, "ry": ry, "rz": rz}},
+                "camera": {"fx": cam.fx, "fy": cam.fy, "cx": cam.cx, "cy": cam.cy,
+                           "z_cam_mm": cam.z_cam_mm, "center_mm": C.tolist()},
                 "supersample": supersample,
             }
             return FrameBundle(modalities=modalities, metadata=meta, aux={})
 
-        # -------------------- Mirror-stereo (two panels) ---------------------
-        # Effective virtual cameras via world-X shift ±B/2
-        half_B = 0.5 * baseline_mm
+        # ----------------------------- mirror stereo ----------------------------
+        # Reflect scene points to create the left panel view
+        rest_xyz_m = _reflect_points_across_plane(rest_xyz_w, plane_p, plane_n)
+        def_xyz_m  = _reflect_points_across_plane(def_xyz_w,  plane_p, plane_n)
 
-        def shiftX(arr: np.ndarray, dx_mm: float) -> np.ndarray:
-            out = arr.copy()
-            out[:, 0] = out[:, 0] + dx_mm
-            return out
+        # Project both panels
+        rest_px_R, Z_rest_R = cam.project_mm(rest_xyz_w)
+        def_px_R,  Z_def_R  = cam.project_mm(def_xyz_w)
+        rest_px_L, Z_rest_L = cam.project_mm(rest_xyz_m)
+        def_px_L,  Z_def_L  = cam.project_mm(def_xyz_m)
 
-        # Left panel
-        rest_xyz_L = shiftX(rest_xyz, +half_B)
-        def_xyz_L  = shiftX(def_xyz,  +half_B)
-        rest_px_L, Z_rest_L = cam.project_mm(rest_xyz_L)
-        def_px_L,  Z_def_L  = cam.project_mm(def_xyz_L)
+        # Radii (size cue) from true depths to the (real) camera center
         r_mm = np.full((N,), 0.5 * diameter_mm, dtype=np.float32)
+        rad_px_rest_R = cam.radius_mm_to_px(r_mm, Z_rest_R).astype(np.float32)
+        rad_px_def_R  = cam.radius_mm_to_px(r_mm, Z_def_R ).astype(np.float32)
         rad_px_rest_L = cam.radius_mm_to_px(r_mm, Z_rest_L).astype(np.float32)
         rad_px_def_L  = cam.radius_mm_to_px(r_mm, Z_def_L ).astype(np.float32)
 
-        # Right panel
-        rest_xyz_R = shiftX(rest_xyz, -half_B)
-        def_xyz_R  = shiftX(def_xyz,  -half_B)
-        rest_px_R, Z_rest_R = cam.project_mm(rest_xyz_R)
-        def_px_R,  Z_def_R  = cam.project_mm(def_xyz_R)
-        rad_px_rest_R = cam.radius_mm_to_px(r_mm, Z_rest_R).astype(np.float32)
-        rad_px_def_R  = cam.radius_mm_to_px(r_mm, Z_def_R ).astype(np.float32)
+        # Render individual panels
+        img_R = _render_panel(img_w, img_h, def_px_R, rad_px_def_R, dot_color, bg_bgr, supersample)
+        img_L = _render_panel(img_w, img_h, def_px_L, rad_px_def_L, dot_color, bg_bgr, supersample)
 
-        # Optional mirror flip for the left panel (cosmetic realism)
-        if flip_left:
-            def_px_L = def_px_L.copy()
-            def_px_L[:, 0] = (img_w - 1) - def_px_L[:, 0]
-            rest_px_L = rest_px_L.copy()
-            rest_px_L[:, 0] = (img_w - 1) - rest_px_L[:, 0]
-
-        # Render panels separately
-        img_L = _render_panel_image(cam, img_w, img_h, def_px_L, rad_px_def_L, dot_color, bg_bgr, supersample)
-        img_R = _render_panel_image(cam, img_w, img_h, def_px_R, rad_px_def_R, dot_color, bg_bgr, supersample)
-
-        # Compose side-by-side with a gap
-        W_out = img_w * 2 + panel_gap_px
+        # Compose side-by-side
+        W_out = img_w * 2
         H_out = img_h
-        out = np.zeros((H_out, W_out, 3), dtype=np.uint8)
-        out[...] = np.array(bg_bgr, dtype=np.uint8).reshape(1, 1, 3)
+        out = np.full((H_out, W_out, 3), np.array(bg_bgr, dtype=np.uint8).reshape(1, 1, 3), dtype=np.uint8)
+        off_left  = (0, 0)
+        off_right = (img_w, 0)
+        out[0:img_h, 0:img_w, :] = img_L
+        out[0:img_h, off_right[0]:off_right[0]+img_w, :] = img_R
 
-        # Paste
-        out[:, 0:img_w, :] = img_L
-        out[:, img_w + panel_gap_px : img_w + panel_gap_px + img_w, :] = img_R
+        # Pixel coordinates in raw panel frames and in the composite frame
+        def _shift(px: np.ndarray, off: Tuple[int, int]) -> np.ndarray:
+            px2 = px.copy(); px2[:, 0] += off[0]; px2[:, 1] += off[1]; return px2
 
-        # Offsets of panels in the composite (for downstream use)
-        panel_offsets_px = {
-            "left":  (0, 0),
-            "right": (img_w + panel_gap_px, 0),
-        }
+        rest_px_L_comp = _shift(rest_px_L, off_left)
+        def_px_L_comp  = _shift(def_px_L,  off_left)
+        rest_px_R_comp = _shift(rest_px_R, off_right)
+        def_px_R_comp  = _shift(def_px_R,  off_right)
 
-        # Shift pixel coordinates into composite image space (so they match the image)
-        def shift_px_to_composite(px: np.ndarray, panel: str) -> np.ndarray:
-            px2 = px.copy()
-            off = panel_offsets_px[panel]
-            px2[:, 0] += off[0]
-            px2[:, 1] += off[1]
-            return px2
+        # Virtual camera center (reflection of C)
+        C_virtual = _reflect_points_across_plane(C[None, :], plane_p, plane_n)[0]
+        baseline = float(np.linalg.norm(C_virtual - C))
 
-        def_px_L_comp  = shift_px_to_composite(def_px_L,  "left")
-        rest_px_L_comp = shift_px_to_composite(rest_px_L, "left")
-        def_px_R_comp  = shift_px_to_composite(def_px_R,  "right")
-        rest_px_R_comp = shift_px_to_composite(rest_px_R, "right")
-
-        # Package outputs
         modalities: Dict[str, Any] = {
             "image_bgr": out,
-            "dots_rest_xyz": rest_xyz.astype(np.float32),
-            "dots_def_xyz": def_xyz.astype(np.float32),
+            "dots_rest_xyz": rest_xyz_w.astype(np.float32),
+            "dots_def_xyz":  def_xyz_w.astype(np.float32),
+
+            "dots_rest_px_left_panel":  rest_px_L.astype(np.float32),
+            "dots_def_px_left_panel":   def_px_L.astype(np.float32),
+            "dots_rest_px_right_panel": rest_px_R.astype(np.float32),
+            "dots_def_px_right_panel":  def_px_R.astype(np.float32),
 
             "dots_rest_px_left":  rest_px_L_comp.astype(np.float32),
             "dots_def_px_left":   def_px_L_comp.astype(np.float32),
-            "dot_radius_px_rest_left": rad_px_rest_L,
-            "dot_radius_px_def_left":  rad_px_def_L,
-
             "dots_rest_px_right": rest_px_R_comp.astype(np.float32),
             "dots_def_px_right":  def_px_R_comp.astype(np.float32),
+
+            "dot_radius_px_rest_left":  rad_px_rest_L,
+            "dot_radius_px_def_left":   rad_px_def_L,
             "dot_radius_px_rest_right": rad_px_rest_R,
             "dot_radius_px_def_right":  rad_px_def_R,
         }
 
         meta = {
-            "renderer": self.name(),
-            "version": self.version(),
-            "mode": "mirror_stereo",
+            "renderer": self.name(), "version": self.version(), "mode": "mirror_stereo",
             "image_size": (H_out, W_out),
             "panel_image_size": (img_h, img_w),
-            "panel_gap_px": panel_gap_px,
-            "panel_offsets_px": panel_offsets_px,
+            "panel_offsets_px": {"left": off_left, "right": off_right},
+
+            "surface": {"z_mm": z_surf, "R": R.tolist(), "t": new_surface_center.tolist(),
+                        "tilt_deg": {"rx": rx, "ry": ry, "rz": rz},
+                        "size_mm": [Lx, Ly]},
+
+            "camera": {"fx": cam.fx, "fy": cam.fy, "cx": cam.cx, "cy": cam.cy,
+                       "z_cam_mm": cam.z_cam_mm, "center_mm": C.tolist()},
+
+            "mirror": {"plane_normal": plane_n.tolist(), "plane_point_mm": plane_p.tolist(),
+                       "virtual_center_mm": C_virtual.tolist()},
+
             "grid_shape": (Ny, Nx),
-            "spacing_mm": spacing_mm,
-            "diameter_mm": diameter_mm,
-            "surface_z_mm": z_surf_mm,
-            "baseline_mm": baseline_mm,
+            "spacing_mm": spacing_mm, "diameter_mm": diameter_mm,
             "supersample": supersample,
-            "flip_left": flip_left,
         }
         return FrameBundle(modalities=modalities, metadata=meta, aux={})
