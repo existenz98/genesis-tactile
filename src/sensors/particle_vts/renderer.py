@@ -20,6 +20,12 @@
 Renderer of Particle-based Vision Tactile Sensor
 
 implemented as a plugin.
+
+How to use:
+python src/scripts/render_sensor_frame.py \
+  --sensor particle_vts \
+  --config src/config/renderer.yaml \
+  --out data/output/particle_frame.png
 """
 
 from __future__ import annotations

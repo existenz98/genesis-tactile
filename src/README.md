@@ -119,17 +119,9 @@ python src/scripts/run_ifem_from_u.py \
 
 ### Render synthetic images
 
-#### 1. old way : render_camera_frame.py
+#### 1. new way : render_sensor_frame.py
 
-Can only support **Particle style sensor**
-
-```bash
-python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
-```
-
-#### 2. new way : render_sensor_frame.py
-
-Supports **All sensor types, including Particle, Gelsight**
+Supports **All sensor types, including Particle, Gelsight, Tac3D**
 
 **Particle style sensor**
 
@@ -151,8 +143,32 @@ python src/scripts/render_sensor_frame.py \
   --out data/output/render_gs.png
 ```
 
+**Tac3D style sensor**
 
-Note that if want to generate generate images with deformed state, you need to run the Forward FEM step to generate deformed mesh u.xdmf, and modify renderer.yaml:
+```bash
+python src/scripts/render_sensor_frame.py \
+  --sensor tac3d \
+  --config src/config/renderer_tac3d.yaml \
+  --out data/output/render_tac3d.png
+```
+
+
+#### 2. deprecated : render_camera_frame.py
+
+Can only support **Particle style sensor**
+
+```bash
+python src/scripts/render_camera_frame.py   --config src/config/renderer.yaml   --out data/output/render.png   --seed 42   --supersample 2
+```
+
+
+**Note:**
+
+To generate generate images with deformed state (gel with force field applied), you need to:
+
+1. run the Forward FEM step to generate deformed mesh `u.xdmf`
+
+2. modify the sensor's corresponding `renderer.yaml` (`renderer_tac3d.yaml`, `renderer_gelsight.yaml`):
 
 from:
 
@@ -169,7 +185,7 @@ deformation:
   xdmf_path: <path to u.xdmf>
 ```
 
-
+---
 
 ### Generate Dataset for training
 
