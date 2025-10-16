@@ -23,7 +23,8 @@ Example:
   python src/dataset/gen_dataset.py \
     --root dataset/train \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \
     --n_balls_min 1 --n_balls_max 2
@@ -45,7 +46,10 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True)
-    p.add_argument("--renderer", type=Path, required=True)
+
+    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "tac3d"])
+    p.add_argument("--render-config", type=Path, required=True)
+
     p.add_argument("--n", type=int, required=True)
     p.add_argument("--jobs", type=int, default=8)
     p.add_argument("--start_id", type=int, default=0)
@@ -88,7 +92,8 @@ def main():
             sys.executable, "src/dataset/gen_sample.py",
             "--outdir", str(outdir),
             "--material", str(args.material),
-            "--renderer", str(args.renderer),
+            "--sensor", args.sensor,
+            "--render-config", str(args.render_config),
             "--mode", mode,
             "--n_balls", str(n_balls),
             "--Lx_mm", str(args.Lx_mm),

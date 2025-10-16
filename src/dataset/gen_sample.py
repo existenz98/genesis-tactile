@@ -26,34 +26,44 @@ Generate ONE dataset sample:
 - Save force map NPZ, metadata JSON, and debug PNGs.
 
 Example:
+
+# Pressure-only
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000001 \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --mode pressure --gauss_sigma_min_mm 1.0 --gauss_sigma_max_mm 4.0   --fz_peak_min_mpa 0.05 --fz_peak_max_mpa 0.15   \
     --n_balls 2   --seed 123 \
     --save_flow \
     --debug_show
 
+# Shear-only
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
     --save_flow \
     --debug_show
 
+# Torque-only
 python src/dataset/gen_sample.py  \
-    --outdir dataset/val/000002     --material src/config/material.yaml     --renderer src/config/renderer.yaml  \
+    --outdir dataset/val/000002     --material src/config/material.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml  \
     --mode torque  \
     --n_balls 1  --seed 42 \
     --save_flow
 
+# Combo (pressure + shear + torque)
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000002 \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --mode combo \
     --n_balls 2 --seed 100 \
     --save_flow
@@ -145,7 +155,9 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True, help="YAML used by forward FEM.")
-    p.add_argument("--renderer", type=Path, required=True, help="YAML used by OpenCV renderer.")
+
+    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "tac3d"])
+    p.add_argument("--render-config", type=Path, required=True, help="YAML used by sensor renderer.")
 
     p.add_argument("--mode", type=str, default="combo", choices=["pressure", "shear", "torque", "combo"])
 
@@ -227,8 +239,11 @@ def main():
 
     # render undeformed (mode: none)
     cmd_ren0 = [
-        sys.executable, "src/scripts/render_camera_frame.py",
-        "--config", str(args.renderer),
+        #sys.executable, "src/scripts/render_camera_frame.py",
+        #"--config", str(args.renderer),
+        sys.executable, "src/scripts/render_sensor_frame.py",
+        "--sensor", args.sensor,
+        "--config", str(args.render_config),
         "--out", str(I0),
         "--seed", str(args.seed),
         "--supersample", "2",
@@ -236,8 +251,8 @@ def main():
     subprocess.run(cmd_ren0, check=True)
 
     # render deformed (mode: xdmf reads sidecar DOFs)
-    # renderer.yaml must have deformation.mode: xdmf and xdmf_path will be set here by env var
-    with open(args.renderer, "r") as f:
+    # render config yaml must have deformation.mode: xdmf and xdmf_path will be set here by env var
+    with open(args.render_config, "r") as f:
         ren_cfg = yaml.safe_load(f)
     ren_cfg = dict(ren_cfg)     # make a copy of config
     ren_cfg["deformation"] = {"mode": "xdmf", "xdmf_path": str(xdmf)}   # add deformation files
@@ -245,7 +260,9 @@ def main():
     with open(rtmp, "w") as f:
         yaml.safe_dump(ren_cfg, f)
     cmd_ren1 = [
-        sys.executable, "src/scripts/render_camera_frame.py",
+        #sys.executable, "src/scripts/render_camera_frame.py",
+        sys.executable, "src/scripts/render_sensor_frame.py",
+        "--sensor", args.sensor,
         "--config", str(rtmp),                  # use new config file (with deformation)
         "--out", str(I1),
         "--seed", str(args.seed),

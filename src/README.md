@@ -195,7 +195,8 @@ Single sample test:
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
     --save_flow \
@@ -208,7 +209,8 @@ Generate dataset (many samples, in parallel):
 python src/dataset/gen_dataset.py \
     --root dataset/train \
     --material src/config/material.yaml \
-    --renderer src/config/renderer.yaml \
+    --sensor particle_vts \
+    --render-config src/config/renderer.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \
     --n_balls_min 1 --n_balls_max 2
