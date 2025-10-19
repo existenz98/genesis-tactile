@@ -33,24 +33,38 @@ from ..config.settings import DisplayConfig
 class DebugDisplay:
     def __init__(self, cfg: DisplayConfig):
         self.cfg = cfg
+
+        # Track all created windows
         self._created = set()
 
     def _maybe_resize(self, img: np.ndarray) -> np.ndarray:
+        """Resize image according to config."""
         s = self.cfg.window_scale
+
+        # No resizing
         if s == 1.0: return img
+
+        # Resize
         h,w = img.shape[:2]
         nh, nw = max(1,int(h*s)), max(1,int(w*s))
         return cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
 
     def show(self, name: str, img_bgr: np.ndarray):
-        if not self.cfg.enable: return
+        if not self.cfg.enable:
+            return
+
+        # Create window only if not exists
         if name not in self._created:
             cv2.namedWindow(name, cv2.WINDOW_NORMAL)
             self._created.add(name)
+
         cv2.imshow(name, self._maybe_resize(img_bgr))
 
     def tick(self) -> int:
-        """Call once per frame after all windows are shown. Returns key code."""
+        """
+        Call once for all windows to refresh.
+        Returns key code.
+        """
         if not self.cfg.enable: return -1
         return cv2.waitKey(self.cfg.wait_key_ms) & 0xFF
 

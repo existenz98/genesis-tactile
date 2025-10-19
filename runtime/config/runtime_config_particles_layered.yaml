@@ -19,7 +19,12 @@ virtual:
   fps: 30.0                   # pacing for video/folder playback
   loop: false                 # loop playback when reaching the end
 
+
 # ---------- CORE MODULES ----------
+
+sensor:
+  type: particles_layered     # other options: particles | particles_layered | ... ...
+
 # Photometric compensation: baseline | per_frame | skip
 compensation_mode: baseline
 

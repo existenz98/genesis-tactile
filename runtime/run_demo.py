@@ -131,8 +131,6 @@ def cli_overlay(cfg, args):
         cfg.flow.method = FlowMethod(args.flow)
 
     # tri-state booleans
-    if args.raw_flow is not None:
-        cfg.do_raw_flow = args.raw_flow
     if args.display_enable is not None:
         cfg.display.enable = args.display_enable
 
@@ -150,6 +148,7 @@ def cli_overlay(cfg, args):
 def main():
     a = parse_args()
 
+    # TODO: merge config from 3 sources:
     ## 1) defaults
     #cfg = RuntimeConfig()
     ## 2) YAML overlay (if provided)
@@ -166,7 +165,6 @@ def main():
       compensation_mode=CompensationMode(a.compensation),
       unmix_mode=UnmixMode(a.unmix),
       flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
-      do_raw_flow=a.raw_flow,
       output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),
       display=DisplayConfig(enable=not a.no_display),
       downscale=a.downscale,

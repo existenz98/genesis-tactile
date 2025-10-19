@@ -269,20 +269,24 @@ class ShmFrameConfig:
         }
 
 
+@dataclass
+class SensorConfig:
+    type: str = "particles"     # sensor renderer type: particles | particles_layered | ...
 
 
 
 @dataclass
 class RuntimeConfig:
+
+    # Sensor configuration
+    sensor : SensorConfig = field(default_factory=SensorConfig)
+
     # Source selection
     source_mode: SourceMode = SourceMode.VIDEO
     input_path: str = ""          # for VIDEO/FOLDER modes
     is_folder: bool = False       # deprecated; use source_mode
     camera: CameraConfig = field(default_factory=CameraConfig)
     virtual: VirtualSourceConfig = field(default_factory=VirtualSourceConfig)
-
-    # Options
-    do_raw_flow: bool = True
 
     # Core modules
     preproc: PreprocConfig = field(default_factory=PreprocConfig)

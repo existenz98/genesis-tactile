@@ -41,6 +41,7 @@ from .preprocessing.optical_flow import compute_flow, to_gray_f32_bgr, to_gray_f
 from .output.visualizer import flow_to_color_bgr, draw_quiver_bgr, flow_block_reduce, scalar_to_color_bgr, draw_quiver_grid_bgr, VideoWriters
 from .output.display import DebugDisplay
 from .core.frame_bus import FrameBus
+from .tir.types import TirMeta, Deformation, to_flow2d_pixels
 from .output.vis3d_pyvista import Vis3DLive
 from .algorithms.physics_solver import PhysicsSolver
 from .config.settings import PhysicsConfig
@@ -79,10 +80,19 @@ class RuntimePipeline:
     """
 
     def __init__(self, cfg: RuntimeConfig):
+        """
+        Initialize pipeline with configuration.
+        """
+
         self.cfg = cfg
-        self._algo_choice = 2  # Active algorithm, api client can switch it.  1=Physics, 2=CNN, 3=iFEM
-        self.latest_flows: Dict[str, Any] = {}  # updated every frame
+
+        # Algorithm, 1=hard coded Physics, 2=CNN, 3=iFEM
+        self._algo_choice = 2
+
+        # IPC bus for publishing frames to 3D viz / SDK
         self.bus: Optional[FrameBus] = None     # but's topics will be created later by runner
+
+        # latest physics output (for sending to SDK / visualization)
         self.latest_physics = None
 
     # callable by CtrlServer
@@ -91,7 +101,7 @@ class RuntimePipeline:
         a = int(a)
         if a in (1,2,3): self._algo_choice = a
 
-    def _make_source(self):
+    def _make_camera_source(self):
         sm = self.cfg.source_mode
         if sm == SourceMode.CAMERA:
             c = self.cfg.camera
@@ -116,10 +126,17 @@ class RuntimePipeline:
         # profiler
         prof = Prof(enable=True, report_every=20)
 
-        # ----- camera source -----
-        src = self._make_source()
+        # debug video writers
+        writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
+        outputs: Dict[str, Any] = {}
 
-        # ----- create SHM ring -----
+        # debug 2D display
+        disp = DebugDisplay(cfg.display)
+
+        # ----- Create Cameras -----
+        src = self._make_camera_source()
+
+        # ----- Create SHM ring buffer -----
         # get shapes by warmup: read first frame, compute initial flow & force to determine SHM shapes
         first_bgr = next(src.frames())
         H_camera, W_camera = first_bgr.shape[:2]
@@ -146,11 +163,6 @@ class RuntimePipeline:
                           get_info=lambda: {"version":"0.1","shm":self.cfg.shm.name})
         ctrl.start()
 
-        # ----- debug 2D display -----
-        disp = DebugDisplay(cfg.display)
-
-        writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
-        outputs: Dict[str, Any] = {}
 
         # First-frame references
         ref_bal_bgr: Optional[np.ndarray] = None
@@ -158,6 +170,22 @@ class RuntimePipeline:
         ref_raw_gray: Optional[np.ndarray] = None
 
         # ----- Modules -----
+
+        # Create Sensor specific adapter
+        print(f"[pipeline] Creating sensor adapter for type '{cfg.sensor.type}'")
+        self.adapter = None
+        if cfg.sensor.type in ("particles"):
+            from .sensors.particles.adapter import ParticlesAdapter as Adapter
+            self.adapter = Adapter(cfg, disp)  # pass existing flags: unmix, compensation, flow, downscale
+            print("[pipeline] Using ParticlesAdapter")
+        elif cfg.sensor.type in ("particles_layered"):
+            from .sensors.particles_layered.adapter import ParticlesLayeredAdapter as Adapter
+            self.adapter = Adapter(cfg, disp)  # pass existing flags: unmix, compensation, flow, downscale
+            print("[pipeline] Using ParticlesLayeredAdapter")
+        else:
+            raise ValueError("Unknown sensor.type")
+
+
         compensator = None
         if cfg.compensation_mode == CompensationMode.BASELINE:
             compensator = BaselineCompensator(cfg.preproc)
@@ -168,16 +196,21 @@ class RuntimePipeline:
         if cfg.unmix_mode != UnmixMode.SKIP:
             unmix = UnmixModel(cfg.unmix)
 
-        # ----- Physics Solver -----
+        # ----- Create Solvers -----
+
+        # physics solver
         phys_cfg = self.cfg.physics
         physics_solver = PhysicsSolver(phys_cfg)
 
-        # ----- CNN Solver -----
+        # cnn solver
         cnn_solver = None
         cnn_cfg = self.cfg.cnn
         if self.cfg.cnn.enable:
             cnn_solver = CnnForceSolver(self.cfg.cnn)
             print(f"[pipeline] Initialized CNN solver: {cnn_solver}")
+
+        # TODO: iFEM solver
+
 
         # ----- Main Loop -----
         count = 0
@@ -192,185 +225,86 @@ class RuntimePipeline:
                 if cfg.display.show_input:
                     disp.show("input", bgr)
 
-                # 1) compute flow
+                # 1) Sensor addaptor computes Tactile Intermediate Representation (TIR)
+                if count == 0:
+                    self.adapter.prepare(bgr)
 
-                # Compensation
-                #print("pipeline - compensation")
-                if isinstance(compensator, BaselineCompensator) and ref_bal_bgr is None:
-                    # fit on first frame
-                    compensator.fit(bgr)
-                if compensator is not None:
-                    bal_bgr = compensator.apply(bgr)
-                    if cfg.display.show_compensated:
-                        disp.show("compensated", bal_bgr)
-                else:
-                    bal_bgr = bgr.copy()
-
-                # Initialize refs from the first balanced frame
-                if ref_bal_bgr is None:
-                    ref_bal_bgr = bal_bgr.copy()
-                    if cfg.unmix_mode != UnmixMode.SKIP and unmix is not None:
-                        unmix.fit(ref_bal_bgr)
-                        ref_comp = unmix.transform(ref_bal_bgr)     # linear components
-                    ref_raw_gray = to_gray_f32_bgr(ref_bal_bgr if cfg.unmix_mode != UnmixMode.SKIP else bgr)
-
-                # Per-frame containers for output to solver
-                dense: Dict[str, Any] = {}
-                down: Dict[str, Any] = {}
-
-                # Color unmix per frame, and per-color flows
-                if cfg.unmix_mode != UnmixMode.SKIP and unmix is not None:
-                    #print("pipeline - color unmix")
-                    comp_lin = unmix.transform(bal_bgr)  # HxWx3 linear
-
-                    # Visualization: segmentation color & component maps
-                    if cfg.display.show_seg_color or cfg.display.show_seg_R or cfg.display.show_seg_G or cfg.display.show_seg_B:
-                        seg_idx = np.argmax(comp_lin, axis=-1)
-                        seg_bgr = np.zeros_like(bal_bgr)
-                        # R,G,B colors in BGR
-                        palette = np.array([[0,0,255],[0,255,0],[255,0,0]], dtype=np.uint8)
-                        for k in range(3):
-                            seg_bgr[seg_idx==k] = palette[k]
-                        if cfg.display.show_seg_color:
-                            disp.show("seg_rgb", seg_bgr)
-                        def to_vis(comp):
-                            g = to_gray_f32_linear_component(comp)
-                            return (np.stack([g,g,g], axis=-1)*255).astype(np.uint8)
-                        if cfg.display.show_seg_R: disp.show("comp_R", to_vis(comp_lin[...,0]))
-                        if cfg.display.show_seg_G: disp.show("comp_G", to_vis(comp_lin[...,1]))
-                        if cfg.display.show_seg_B: disp.show("comp_B", to_vis(comp_lin[...,2]))
-
-                    # Per-color flows vs reference
-                    for k, name in enumerate(["R","G","B"]):
-                        refg = to_gray_f32_linear_component(ref_comp[...,k])
-                        curg = to_gray_f32_linear_component(comp_lin[...,k])
-                        vy, vx = compute_flow(refg, curg, cfg.flow)
-                        dense[name] = (vy, vx)
-
-                        # COLOR window + (optional) writing
-                        if getattr(cfg.display, f"show_flow_color_{name}"):
-                            color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
-                            disp.show(f"flow_color_{name}", color_bgr)
-                            if writers is not None:
-                                writers.write(f"flow_color_{name}", color_bgr)
-
-                        # QUIVER window
-                        if getattr(cfg.display, f"show_flow_quiver_{name}"):
-                            quiv_bgr = draw_quiver_bgr(
-                                vy, vx,
-                                block=cfg.display.quiver_block,
-                                pool=cfg.display.quiver_pool,
-                                scale=cfg.display.quiver_scale,
-                                thickness=cfg.display.quiver_thickness,
-                                color=cfg.display.quiver_color,
-                                bg=cfg.display.quiver_bg,
-                                min_px=cfg.display.quiver_min_px,
-                                draw_centers=cfg.display.quiver_draw_centers,
-                                center_color=cfg.display.quiver_color,
-                            )
-                            disp.show(f"flow_quiver_{name}", quiv_bgr)
+                deformation = self.adapter.process(bgr)
 
 
-                # Raw flow vs reference
-                if cfg.do_raw_flow:
-                    with prof("1) raw flow"):
-                        cur_gray = to_gray_f32_bgr(bal_bgr if unmix is not None else bgr)
-                        vy, vx = compute_flow(ref_raw_gray, cur_gray, cfg.flow)
-                        vx = vx / self.cfg.downscale  # flow strength as original pixel scale
-                        vy = vy / self.cfg.downscale  # flow strength as original pixel scale
+                # 2) Solver
+                algo_id = self.get_algo()
+                phys = None
 
-                    if cfg.display.show_flow_color_raw:
-                        color_bgr = flow_to_color_bgr(vy, vx, cfg.flow.vis_flow_max)
-                        disp.show("flow_color_raw", color_bgr)
-                        if writers is not None:
-                            writers.write("flow_color_raw", color_bgr)
+                vx, vy = to_flow2d_pixels(deformation)
 
-                    if cfg.display.show_flow_quiver_raw:
-                        quiv_bgr = draw_quiver_bgr(
-                            vy, vx,
-                            block=cfg.display.quiver_block,
-                            pool=cfg.display.quiver_pool,
-                            scale=cfg.display.quiver_scale,
-                            thickness=cfg.display.quiver_thickness,
-                            color=cfg.display.quiver_color,
-                            bg=cfg.display.quiver_bg,
-                            min_px=cfg.display.quiver_min_px,
-                            draw_centers=cfg.display.quiver_draw_centers,
-                            center_color=cfg.display.quiver_color,
-                        )
-                        disp.show("flow_quiver_raw", quiv_bgr)
+                if algo_id == 1:
+                    with prof("2) solver - phys"):
+                        phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
+                elif algo_id == 2:
+                    with prof("2) solver - cnn"):
+                        if self.cfg.cnn.enable and cnn_solver is not None:
+                            phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
 
-                    # 2) Solver
-                    algo_id = self.get_algo()
-                    phys = None
+                self.latest_physics = phys  # expose to downstream (SDK / Visualization)
 
-                    if algo_id == 1:
-                        with prof("2) solver - phys"):
-                            phys = physics_solver.solve_from_dense(vy, vx)  # vy/vx are in pixels
-                    elif algo_id == 2:
-                        with prof("2) solver - cnn"):
-                            if self.cfg.cnn.enable and cnn_solver is not None:
-                                phys = cnn_solver.solve_from_flow(vy, vx, mm_per_px=self.cfg.physics.mm_per_px)
+                # 2D Visualization
+                #print("pipeline - show 2d view")
+                pd = self.cfg.physics_display
+                Hf, Wf = vy.shape
 
-                    self.latest_physics = phys  # expose to downstream (SDK / Visualization)
+                if pd.show_pressure_map:
+                    p = phys["p"]
+                    p_bgr = scalar_to_color_bgr(
+                        p,
+                        vmin=(physics_solver.cfg.vis_p_min if physics_solver.cfg.vis_p_min is not None else None),
+                        vmax=(physics_solver.cfg.vis_p_max if physics_solver.cfg.vis_p_max is not None else None),
+                    )
+                    # Resize to full frame for easy comparison
+                    p_bgr = cv2.resize(p_bgr, (Wf, Hf), interpolation=cv2.INTER_CUBIC)
+                    disp.show("physics_pressure", p_bgr)
 
-                    # 2D Visualization
-                    #print("pipeline - show 2d view")
-                    pd = self.cfg.physics_display
-                    Hf, Wf = vy.shape
+                if pd.show_tau_quiver:
+                    tx = phys["tau"]["tx"]; ty = phys["tau"]["ty"]
+                    cell_px = phys["grid"]["cell_px"]
+                    quiv_bgr = draw_quiver_grid_bgr(
+                        vy_grid=ty, vx_grid=tx,        # vy = ty (down), vx = tx (right)
+                        cell_px=cell_px,
+                        out_H=Hf, out_W=Wf,
+                        scale=pd.tau_quiver_scale,
+                        thickness=pd.tau_quiver_thickness,
+                        color=pd.tau_quiver_color,
+                        bg=pd.tau_quiver_bg,
+                        min_len=pd.tau_quiver_min,
+                    )
+                    disp.show("physics_shear", quiv_bgr)
 
-                    if pd.show_pressure_map:
-                        p = phys["p"]
-                        p_bgr = scalar_to_color_bgr(
-                            p,
-                            vmin=(physics_solver.cfg.vis_p_min if physics_solver.cfg.vis_p_min is not None else None),
-                            vmax=(physics_solver.cfg.vis_p_max if physics_solver.cfg.vis_p_max is not None else None),
-                        )
-                        # Resize to full frame for easy comparison
-                        p_bgr = cv2.resize(p_bgr, (Wf, Hf), interpolation=cv2.INTER_CUBIC)
-                        disp.show("physics_pressure", p_bgr)
+                # Publish message   (receiver is 3D visualization thread)
+                #print("publish >>>")
+                if self.bus is not None:
+                    self.bus.publish("physics", phys)
+                #print("publish <<<")
 
-                    if pd.show_tau_quiver:
-                        tx = phys["tau"]["tx"]; ty = phys["tau"]["ty"]
-                        cell_px = phys["grid"]["cell_px"]
-                        quiv_bgr = draw_quiver_grid_bgr(
-                            vy_grid=ty, vx_grid=tx,        # vy = ty (down), vx = tx (right)
-                            cell_px=cell_px,
-                            out_H=Hf, out_W=Wf,
-                            scale=pd.tau_quiver_scale,
-                            thickness=pd.tau_quiver_thickness,
-                            color=pd.tau_quiver_color,
-                            bg=pd.tau_quiver_bg,
-                            min_len=pd.tau_quiver_min,
-                        )
-                        disp.show("physics_shear", quiv_bgr)
-
-                    # Publish message   (receiver is 3D visualization thread)
-                    #print("publish >>>")
-                    if self.bus is not None:
-                        self.bus.publish("physics", phys)
-                    #print("publish <<<")
-
-                    # 3) Output: write one Frame into SHM
-                    slot, views = ring.begin_frame(seq=count)               # 1. prepare to write
-                    # camera
-                    views["camera"][:] = camera_frame  # must be BGR8
-                    # flow (resize if flow size differs; omitted here assuming same as header)
-                    views["vy"][:] = vy
-                    views["vx"][:] = vx
-                    # force (assumed already at (Hp,Wp))
-                    views["p"][:]  = phys["p"]
-                    views["tx"][:] = phys["tau"]["tx"]
-                    views["ty"][:] = phys["tau"]["ty"]
-                    # commit & notify
-                    t_usec = int(time.time() * 1e6)
-                    ring.commit_frame(slot, algo=algo_id, t_usec=t_usec)    # 2. actual writing
+                # 3) Output: write one Frame into SHM
+                slot, views = ring.begin_frame(seq=count)               # 1. prepare to write
+                # camera
+                views["camera"][:] = camera_frame  # must be BGR8
+                # flow (resize if flow size differs; omitted here assuming same as header)
+                views["vy"][:] = vy
+                views["vx"][:] = vx
+                # force (assumed already at (Hp,Wp))
+                views["p"][:]  = phys["p"]
+                views["tx"][:] = phys["tau"]["tx"]
+                views["ty"][:] = phys["tau"]["ty"]
+                # commit & notify
+                t_usec = int(time.time() * 1e6)
+                ring.commit_frame(slot, algo=algo_id, t_usec=t_usec)    # 2. actual writing
                                                                         
-                    notifier.announce_ready(name=shm_cfg.name, slot=slot,   # 3. notify clients
-                                            seq=count, t_usec=t_usec)
+                notifier.announce_ready(name=shm_cfg.name, slot=slot,   # 3. notify clients
+                                        seq=count, t_usec=t_usec)
 
 
-
+                # Kick Debug Display
                 #print("pipeline - cv disp.tick")
                 key = disp.tick()
                 if key == ord('q'):
