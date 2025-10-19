@@ -193,8 +193,10 @@ class RuntimePipeline:
             compensator = PerFrameCompensator(cfg.preproc)
 
         unmix = None
-        if cfg.unmix_mode != UnmixMode.SKIP:
-            unmix = UnmixModel(cfg.unmix)
+        if cfg.unmix.mode != UnmixMode.SKIP:
+            unmix = cfg.unmix
+        #if cfg.unmix_mode != UnmixMode.SKIP:
+        #    unmix = UnmixModel(cfg.unmix)
 
         # ----- Create Solvers -----
 

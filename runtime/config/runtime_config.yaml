@@ -24,7 +24,11 @@ virtual:
 compensation_mode: baseline
 
 # Color unmixing: kmeans | skip
-unmix_mode: kmeans
+unmix:
+  mode: kmeans
+  kmeans_samples: 150000
+  kmeans_iters: 40
+  reg: 1.0e-6
 
 flow:
   # Optical flow backend: dis | farneback | tvl1
@@ -44,11 +48,6 @@ preproc:
   clip_max: 2.0
   smooth_kernel: 3
   smooth_iters: 1
-
-unmix:
-  kmeans_samples: 150000
-  kmeans_iters: 40
-  reg: 1.0e-6
 
 # ---------- OUTPUT ----------
 output:

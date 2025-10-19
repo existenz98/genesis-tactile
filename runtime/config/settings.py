@@ -96,7 +96,7 @@ class FlowConfig:
 
 @dataclass
 class DisplayConfig:
-    enable: bool = True
+    enable: bool = False          # enable 2D Debug Windows
     window_scale: float = 1.0     # resize display windows
     wait_key_ms: int = 1          # cv2.waitKey delay per frame, 0 will block until key press.
     show_input: bool = True
@@ -132,7 +132,7 @@ class DisplayConfig:
 
 @dataclass
 class Vis3DConfig:
-    enable: bool = True             # enable live 3D window
+    enable: bool = False            # enable live 3D window
     topic: str = "physics"          # which bus topic to visualize: "physics" or "cnn"
     
     # surface (pressure)
@@ -176,7 +176,7 @@ class PhysicsDisplayConfig:
 
 @dataclass
 class OutputConfig:
-    write_videos: bool = True
+    write_videos: bool = False
     dir: str = "outputs"
     fps: float = 20.0             # writer fps (if not deriving from source)
 
@@ -285,6 +285,7 @@ class RuntimeConfig:
     source_mode: SourceMode = SourceMode.VIDEO
     input_path: str = ""          # for VIDEO/FOLDER modes
     is_folder: bool = False       # deprecated; use source_mode
+    camera: CameraConfig = CameraConfig()
     camera: CameraConfig = field(default_factory=CameraConfig)
     virtual: VirtualSourceConfig = field(default_factory=VirtualSourceConfig)
 
@@ -292,7 +293,6 @@ class RuntimeConfig:
     preproc: PreprocConfig = field(default_factory=PreprocConfig)
     compensation_mode: CompensationMode = CompensationMode.BASELINE
     unmix: UnmixConfig = field(default_factory=UnmixConfig)
-    unmix_mode: UnmixMode = UnmixMode.KMEANS
     flow: FlowConfig = field(default_factory=FlowConfig)
 
     # Physics solver

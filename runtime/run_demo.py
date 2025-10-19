@@ -32,16 +32,30 @@ Run the streaming runtime on camera / video / folder sources with OpenCV optical
 
 Usage examples, run python from parent of runtime/
 
-1. Video file as input, write output to files
+1. Video file as input.
+no compensation, no unmix r,g,b,  show debug visualizations
 
 python -m runtime.run_demo \
   --source video \
-  --input data/camera_frames.avi \
-  --write_videos \
-  --out outputs \
-  --flow dis
+  --input data/raw/camera_frames.avi \
+  --flow dis \
+  --compensation skip \
+  --unmix skip \
+  --vis2d   --vis3d
 
-2. Image files Folder as input, 30fps playback speed
+
+2. Video file as input, write output to files
+with compensation and unmixing
+
+python -m runtime.run_demo \
+  --config runtime/config/runtime_config.yaml \
+  --source video \
+  --input data/raw/camera_frames.avi \
+  --vis2d   --vis3d \
+  --write_videos \
+  --out outputs
+
+3. Image files Folder as input, 30fps playback speed
 
 python -m runtime.run_demo \
   --source folder \
@@ -49,19 +63,11 @@ python -m runtime.run_demo \
   --fps 30 \
   --write_videos
 
-3. Real camera (usb index 0) as input, but not writing output to file
+4. Real camera (usb index 0) as input, but not writing output to file
 python -m runtime.run_demo \
   --source camera \
-  --device 0 \
+  --device 0
 
-4. Optical flow using raw image (no compensation, no unmix r,g,b)
-python -m runtime.run_demo \
-  --source video \
-  --input data/camera_frames.avi \
-  --compensation skip \
-  --flow dis \
-  --unmix skip \
-  --raw_flow
 
 5. Downsampling
 python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5
@@ -88,88 +94,87 @@ from runtime.output.vis3d_pyvista import Vis3DLive
 
 def parse_args():
     ap = argparse.ArgumentParser("Streaming RGB Particle Flow Demo", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    SUPPRESS = argparse.SUPPRESS
     ap.add_argument("--config", default=None, help="Path to runtime_config.yaml")
-    ap.add_argument("--source", choices=[m.value for m in SourceMode], default=SourceMode.VIDEO.value, help="camera|video|folder")
-    ap.add_argument("--input", default="", help="Path to video file or folder (for non-camera modes)")
-    ap.add_argument("--device", type=int, default=0, help="Camera device index")
-    ap.add_argument("--width", type=int, default=0, help="Camera width (0=default)")
-    ap.add_argument("--height", type=int, default=0, help="Camera height (0=default)")
-    ap.add_argument("--fps", type=float, default=30.0, help="Virtual source pacing FPS (video/folder)")
-    ap.add_argument("--compensation", choices=[m.value for m in CompensationMode], default=CompensationMode.BASELINE.value)
-    ap.add_argument("--unmix", choices=[m.value for m in UnmixMode], default=UnmixMode.KMEANS.value)
-    ap.add_argument("--flow", choices=[m.value for m in FlowMethod], default=FlowMethod.DIS.value)
-    ap.add_argument("--raw_flow", action="store_true", help="Enable raw flow")
-    ap.add_argument("--write_videos", action="store_true", help="Write flow videos to outputs/")
-    ap.add_argument("--out", default="outputs", help="Output directory")
-    ap.add_argument("--out_fps", type=float, default=20.0, help="Output video FPS")
-    ap.add_argument("--downscale", type=float, default=1.0, help="Uniform image downscale in (0,1]")
-    ap.add_argument("--max_frames", type=int, default=0, help="Stop after N frames; 0 = unlimited")
+    ap.add_argument("--source", choices=[m.value for m in SourceMode], default=None, help="camera|video|folder")
+    ap.add_argument("--input", default=None, help="Path to video file or folder (for non-camera modes)")
+    ap.add_argument("--device", type=int, default=None, help="Camera device index")
+    ap.add_argument("--width", type=int, default=None, help="Camera width (None=default)")
+    ap.add_argument("--height", type=int, default=None, help="Camera height (None=default)")
+    ap.add_argument("--fps", type=float, default=None, help="Virtual source pacing FPS (video/folder)")
+    ap.add_argument("--loop", action="store_true", default=SUPPRESS, help="Loop video/folder source") # Boolean toggles as *tri-state*: absent = don't touch; present sets value.
+    ap.add_argument("--compensation", choices=[m.value for m in CompensationMode], default=None)
+    ap.add_argument("--unmix", choices=[m.value for m in UnmixMode], default=None)
+    ap.add_argument("--flow", choices=[m.value for m in FlowMethod], default=None)
+    ap.add_argument("--write_videos", action="store_true", default=SUPPRESS, help="Write flow videos to outputs/") # Boolean toggles as *tri-state*: absent = don't touch; present sets value.
+    ap.add_argument("--out", default=None, help="Output directory")
+    ap.add_argument("--out_fps", type=float, default=None, help="Output video FPS")
+    ap.add_argument("--downscale", type=float, default=None, help="Uniform image downscale in (0,1]")
+    ap.add_argument("--max_frames", type=int, default=None, help="Stop after N frames; 0 = unlimited")
     # display
-    ap.add_argument("--no_display", action="store_true", help="Disable debug windows")
+    ap.add_argument("--vis2d", action="store_true", default=SUPPRESS, help="Display 2D Debug Windows") # Boolean toggles as *tri-state*: absent = don't touch; present sets value.
+    ap.add_argument("--vis3d", action="store_true", default=SUPPRESS, help="Display 3D Debug Windows") # Boolean toggles as *tri-state*: absent = don't touch; present sets value.
     return ap.parse_args()
 
 
 def cli_overlay(cfg, args):
-    if args.source is not None:
-        cfg.source_mode = SourceMode(args.source)
-    if args.input:
-        cfg.input_path = args.input
-    if args.device is not None:
-        cfg.camera.device_index = args.device
-    if args.width:
-        cfg.camera.width = args.width
-    if args.height:
-        cfg.camera.height = args.height
-    if args.fps is not None:
-        cfg.virtual.fps = args.fps
+    """ Overlay CLI args onto loaded config """
 
-    if args.compensation:
-        cfg.compensation_mode = CompensationMode(args.compensation)
-    if args.unmix:
-        cfg.unmix_mode = UnmixMode(args.unmix)
-    if args.flow:
-        cfg.flow.method = FlowMethod(args.flow)
+    if args.source is not None: cfg.source_mode = SourceMode(args.source)
+    if args.input is not None: cfg.input_path = args.input
 
-    # tri-state booleans
-    if args.display_enable is not None:
-        cfg.display.enable = args.display_enable
+    # Camera/virtual
+    if args.device is not None: cfg.camera.device_index = args.device
+    if args.width is not None: cfg.camera.width = args.width
+    if args.height is not None: cfg.camera.height = args.height
+    if args.fps is not None: cfg.virtual.fps = args.fps
+    if hasattr(args, "loop"): cfg.virtual.loop = args.loop
 
-    # optional convenience overrides
-    if args.out:
-        cfg.output.dir = args.out
-    if args.out_fps is not None:
-        cfg.output.fps = args.out_fps
-    if args.downscale is not None:
-        cfg.downscale = args.downscale
-    if args.max_frames:
-        cfg.max_frames = args.max_frames    
+    # Modes
+    if args.compensation is not None: cfg.compensation_mode = CompensationMode(args.compensation)
+    if args.unmix is not None: cfg.unmix.mode = UnmixMode(args.unmix)
+    if args.flow is not None: cfg.flow.method = FlowMethod(args.flow)
+
+    # Debug display
+    if hasattr(args, "vis2d"): cfg.display.enable = args.vis2d
+    if hasattr(args, "vis3d"): cfg.vis3d.enable = args.vis3d
+
+    # Output debug video
+    if hasattr(args, "write_videos"): cfg.output.write_videos = args.write_videos
+    if args.out is not None: cfg.output.dir = args.out
+    if args.out_fps is not None: cfg.output.fps = args.out_fps
+
+    if args.downscale is not None: cfg.downscale = args.downscale
+    if args.max_frames is not None: cfg.max_frames = args.max_frames
 
 
 def main():
     a = parse_args()
 
-    # TODO: merge config from 3 sources:
-    ## 1) defaults
-    #cfg = RuntimeConfig()
-    ## 2) YAML overlay (if provided)
-    #if a.config:
-    #    cfg = load_yaml_config(a.config)
-    ## 3) CLI overlay
-    #cli_overlay(cfg, a)
+    # 1) defaults
+    cfg = RuntimeConfig()
 
-    cfg = RuntimeConfig(
-      source_mode=SourceMode(a.source),
-      input_path=a.input,
-      camera=CameraConfig(device_index=a.device, width=a.width or None, height=a.height or None, fps=None),
-      virtual=VirtualSourceConfig(fps=a.fps, loop=False),
-      compensation_mode=CompensationMode(a.compensation),
-      unmix_mode=UnmixMode(a.unmix),
-      flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
-      output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),
-      display=DisplayConfig(enable=not a.no_display),
-      downscale=a.downscale,
-      max_frames=(a.max_frames or None),
-    )
+    # 2) YAML overlay
+    if a.config is not None:
+        cfg = load_yaml_config(a.config)
+
+    # 3) CLI overlay
+    cli_overlay(cfg, a)
+
+    if False:
+        cfg = RuntimeConfig(
+        source_mode=SourceMode(a.source),
+        input_path=a.input,
+        camera=CameraConfig(device_index=a.device, width=a.width or None, height=a.height or None, fps=None),
+        virtual=VirtualSourceConfig(fps=a.fps, loop=False),
+        compensation_mode=CompensationMode(a.compensation),
+        unmix_mode=UnmixMode(a.unmix),
+        flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
+        output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),
+        display=DisplayConfig(enable=not a.no_display),
+        downscale=a.downscale,
+        max_frames=(a.max_frames or None),
+        )
 
     # Create the shared latest-value bus (between algo pipeline and 3D visualization)
     bus = FrameBus()

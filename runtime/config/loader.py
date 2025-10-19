@@ -27,7 +27,8 @@
 
 
 from dataclasses import is_dataclass, fields
-from typing import Any, Dict, Type
+from enum import Enum
+from typing import Any, Dict
 import yaml
 
 from .settings import (
@@ -36,46 +37,69 @@ from .settings import (
     SourceMode, CompensationMode, UnmixMode, FlowMethod
 )
 
-# Map field names to their enum types for coercion
-_ENUM_FIELDS = {
-    ("source_mode",): SourceMode,
-    ("compensation_mode",): CompensationMode,
-    ("unmix_mode",): UnmixMode,
-    ("flow", "method"): FlowMethod,
-}
 
-def _enum_coerce(path: tuple, value: Any):
-    for key_path, enum_type in _ENUM_FIELDS.items():
-        if path == key_path and isinstance(value, str):
-            return enum_type(value)
-    return value
+def _coerce_field_value(field_def, current_value, new_value):
+    """Coerce new_value to the type of field_def."""
+    ftype = field_def.type
 
-# Generic deep update into a dataclass instance
-def _merge_dict_into_dataclass(dc_obj, d: Dict, path_prefix: tuple = ()):
+    # Try Optional[...] / Union[...] wrappers
+    origin = getattr(ftype, "__origin__", None)
+    args = getattr(ftype, "__args__", ())
+
+    def _enum_from(t, v):
+        return t(v) if isinstance(t, type) and issubclass(t, Enum) and isinstance(v, str) else None
+
+    # Try to coerce enum first
+    if origin is not None and args:
+        for t in args:
+            coerced = _enum_from(t, new_value)
+            if coerced is not None:
+                return coerced
+
+    # Direct enum coercion
+    if isinstance(ftype, type) and issubclass(ftype, Enum) and isinstance(new_value, str):
+        return ftype(new_value)
+
+    # If the target field is a Tuple[...] and YAML gave a list, coerce to tuple
+    # NOTE: if current_value is None, we can still coerce by checking the annotation
+    ftype_str = str(ftype)
+    if (isinstance(current_value, tuple) or "typing.Tuple" in ftype_str or "tuple" == ftype_str.lower()) and isinstance(new_value, list):
+        return tuple(new_value)
+    
+    return new_value
+
+
+def _merge_dict_into_dataclass(dc_obj, data: Dict):
+    """
+    Generic deep update into a dataclass instance from a dict.
+    """
     if not is_dataclass(dc_obj):
         raise TypeError("dc_obj must be a dataclass instance")
-    for f in fields(dc_obj):
-        name = f.name
-        if name not in d:
+
+    known = {f.name: f for f in fields(dc_obj)}
+    for name, v in data.items():
+        if name not in known:
+            # Unknown key; ignore or log here if desired
+            print(f"[config] Error: Unknown key ignored: '{name}'")
             continue
-        v = d[name]
-        subpath = path_prefix + (name,)
-        # enum coercion
-        v = _enum_coerce(subpath, v)
+        f = known[name]
         cur = getattr(dc_obj, name)
-        # nested dataclass?
         if is_dataclass(cur) and isinstance(v, dict):
-            _merge_dict_into_dataclass(cur, v, subpath)
+            _merge_dict_into_dataclass(cur, v)
         else:
-            # allow list->tuple for things like quiver_color
-            if isinstance(cur, tuple) and isinstance(v, list):
-                v = tuple(v)
+            v = _coerce_field_value(f, cur, v)
+            old_v = getattr(dc_obj, name)
             setattr(dc_obj, name, v)
+            print(f"[config yaml loader] Set '{dc_obj.__class__.__name__}'.'{name}' from '{old_v}' to '{v}'")
+
 
 def load_yaml_config(path: str) -> RuntimeConfig:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    # start from defaults, then merge YAML
-    cfg = RuntimeConfig()
-    _merge_dict_into_dataclass(cfg, data)
+    cfg = RuntimeConfig()                 # start from defaults
+    print(f"[config yaml loader] Applying config from '{path}'")
+    _merge_dict_into_dataclass(cfg, data) # merge YAML on top
     return cfg
+
+
+
