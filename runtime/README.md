@@ -44,7 +44,19 @@ python -m runtime.run_demo --help
 ```
 ### Examples
 
-Video input, per-color flow (DIS), write videos
+Video input, gray flow only (no unmix/compensation), show 3D and 2D debug windows
+
+```bash
+python -m runtime.run_demo \
+  --source video \
+  --input data/raw/camera_frames.avi \
+  --loop \
+  --compensation skip \
+  --unmix skip \
+  --vis3d --vis2d
+```
+
+Video input, per-color flow, use DIS optical flow algo, write videos for debug
 
 ```bash
 python -m runtime.run_demo \
@@ -77,17 +89,7 @@ python -m runtime.run_demo \
   --color_flow
 ```
 
-Raw gray flow only (no unmix/compensation)
 
-```bash
-python -m runtime.run_demo \
-  --source video \
-  --input data/raw/camera_frames.avi \
-  --compensation skip \
-  --unmix skip \
-  --raw_flow \
-  --write_videos
-```
 
 ## Processing Pipeline
 

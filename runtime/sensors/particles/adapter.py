@@ -57,7 +57,7 @@ class ParticlesAdapter(SensorAdapter):
     """
 
     def __init__(self, cfg: RuntimeConfig, dbg_disp: Optional[DebugDisplay] = None, dbg_writers: Optional[VideoWriters] = None):
-        super().__init__(cfg, dbg_disp)
+        super().__init__(cfg, dbg_disp, dbg_writers)
         self.compensator: Optional[object] = None
         self.ref_bal_bgr: Optional[np.ndarray] = None
         self.ref_raw_gray: Optional[np.ndarray] = None
@@ -113,11 +113,20 @@ class ParticlesAdapter(SensorAdapter):
         # Compute dense flow (pixels in current downscaled grid)
         vy, vx = compute_flow(ref_gray, cur_gray, self.cfg.flow)
 
+        # 3) Convert to original camera pixel scale to match solvers and SHM's need.
+        scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
+        if scale != 0 and scale != 1.0:
+            vx = vx / scale     # flow strength as original pixel scale
+            vy = vy / scale     # flow strength as original pixel scale
+
         # Debug display
         print(f"[ParticlesAdapter] show_flow_color_raw: {self.cfg.display.show_flow_color_raw}")
         if self.cfg.display.show_flow_color_raw:
             color_bgr = flow_to_color_bgr(vy, vx, self.cfg.flow.vis_flow_max)
             self.dbg_disp.show("flow_color_raw", color_bgr)
+        if self.dbg_writers is not None:
+            self.dbg_writers.write("flow_color_raw", color_bgr)
+
         if self.cfg.display.show_flow_quiver_raw:
             quiv_bgr = draw_quiver_bgr(
                 vy, vx,
@@ -132,13 +141,6 @@ class ParticlesAdapter(SensorAdapter):
                 center_color=self.cfg.display.quiver_color,
             )
             self.dbg_disp.show("flow_quiver_raw", quiv_bgr)
-
-
-        # 3) Convert to original camera pixel scale to match solvers and SHM's need.
-        scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
-        if scale != 0 and scale != 1.0:
-            vx = vx / scale
-            vy = vy / scale
 
         # 4) Pack into Deformation (L=1, C=2 -> [vy, vx] in pixel units)
         H, W = vy.shape

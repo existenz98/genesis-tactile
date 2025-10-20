@@ -128,6 +128,8 @@ class RuntimePipeline:
 
         # debug video writers
         writers = VideoWriters(cfg.output.dir, cfg.output.fps) if cfg.output.write_videos else None
+        print(f"[pipeline] Video writers enabled: {cfg.output.write_videos}, writers={writers}")
+
         outputs: Dict[str, Any] = {}
 
         # debug 2D display
@@ -176,11 +178,11 @@ class RuntimePipeline:
         self.adapter = None
         if cfg.sensor.type in ("particles"):
             from .sensors.particles.adapter import ParticlesAdapter as Adapter
-            self.adapter = Adapter(cfg, disp)  # pass existing flags: unmix, compensation, flow, downscale
+            self.adapter = Adapter(cfg, disp, writers)  # pass existing flags: unmix, compensation, flow, downscale
             print("[pipeline] Using ParticlesAdapter")
         elif cfg.sensor.type in ("particles_layered"):
             from .sensors.particles_layered.adapter import ParticlesLayeredAdapter as Adapter
-            self.adapter = Adapter(cfg, disp)  # pass existing flags: unmix, compensation, flow, downscale
+            self.adapter = Adapter(cfg, disp, writers)  # pass existing flags: unmix, compensation, flow, downscale
             print("[pipeline] Using ParticlesLayeredAdapter")
         else:
             raise ValueError("Unknown sensor.type")
@@ -238,7 +240,7 @@ class RuntimePipeline:
                 algo_id = self.get_algo()
                 phys = None
 
-                vx, vy = to_flow2d_pixels(deformation)
+                vy, vx = to_flow2d_pixels(deformation)
 
                 if algo_id == 1:
                     with prof("2) solver - phys"):

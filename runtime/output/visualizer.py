@@ -169,9 +169,11 @@ class VideoWriters:
         path = os.path.join(self.out_dir, f"{key}.mp4")
         wr = cv2.VideoWriter(path, fourcc, self.fps, (w,h))
         self.writers[key] = (wr, path)
+        print(f"[VideoWriters] Opened video writer for key='{key}' at: {path}")
         return wr
 
     def write(self, key: str, frame_bgr: np.ndarray):
+        #print(f"[VideoWriters] Writing frame to key='{key}'")
         if key not in self.writers:
             self._open(key, frame_bgr.shape)
         self.writers[key][0].write(frame_bgr)

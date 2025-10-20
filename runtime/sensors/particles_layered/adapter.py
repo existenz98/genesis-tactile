@@ -57,7 +57,7 @@ class ParticlesLayeredAdapter(SensorAdapter):
     """
 
     def __init__(self, cfg: RuntimeConfig, dbg_disp: Optional[DebugDisplay] = None, dbg_writers: Optional[VideoWriters] = None):
-        super().__init__(cfg, dbg_disp)
+        super().__init__(cfg, dbg_disp, dbg_writers)
         self.compensator: Optional[object] = None
         self.unmix: Optional[UnmixModel] = None
 
@@ -152,8 +152,8 @@ class ParticlesLayeredAdapter(SensorAdapter):
         # 4) Scale flows back to original camera pixel units
         scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
         if scale != 0 and scale != 1.0:
-            vy_layers = [vy / scale for vy in vy_layers]
-            vx_layers = [vx / scale for vx in vx_layers]
+            vy_layers = [vy / scale for vy in vy_layers]        # flow strength as original pixel scale
+            vx_layers = [vx / scale for vx in vx_layers]        # flow strength as original pixel scale
 
         # debug display per-layer flows
         for k, name in enumerate(["R","G","B"]):
