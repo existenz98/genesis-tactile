@@ -271,8 +271,8 @@ class ShmFrameConfig:
 
 @dataclass
 class SensorConfig:
-    type: str = "particles"     # sensor renderer type: particles | particles_layered | ...
-
+    type: str = "particles"     # sensor type: particles | particles_layered | ...
+    params: Dict[str, Any] = field(default_factory=dict)    # sensor specific settings
 
 
 @dataclass

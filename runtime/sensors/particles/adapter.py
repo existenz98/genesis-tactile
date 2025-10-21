@@ -58,6 +58,7 @@ class ParticlesAdapter(SensorAdapter):
 
     def __init__(self, cfg: RuntimeConfig, dbg_disp: Optional[DebugDisplay] = None, dbg_writers: Optional[VideoWriters] = None):
         super().__init__(cfg, dbg_disp, dbg_writers)
+
         self.compensator: Optional[object] = None
         self.ref_bal_bgr: Optional[np.ndarray] = None
         self.ref_raw_gray: Optional[np.ndarray] = None
@@ -90,7 +91,7 @@ class ParticlesAdapter(SensorAdapter):
         self.ref_bal_bgr = bal_bgr.copy()
         self.ref_raw_gray = to_gray_f32_bgr(self.ref_bal_bgr)
 
-    def process(self, bgr: np.ndarray) -> Deformation:
+    def process(self, bgr: np.ndarray) -> Optional[Deformation]:
         self.frame_id += 1
 
         print("[ParticlesAdapter] process() called for frame id", self.frame_id)

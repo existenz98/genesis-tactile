@@ -73,8 +73,8 @@ class ParticlesLayeredAdapter(SensorAdapter):
             self.compensator = None
 
         # Unmix r, g, b particles
-        print(f"[ParticlesLayeredAdapter] cfg.unmix_mode = '{cfg.unmix_mode}'")
-        if cfg.unmix_mode != UnmixMode.SKIP:
+        print(f"[ParticlesLayeredAdapter] cfg.unmix.mode = '{cfg.unmix.mode}'")
+        if cfg.unmix.mode != UnmixMode.SKIP:
             self.unmix = UnmixModel(cfg.unmix)
         else:
             self.unmix = None
@@ -111,7 +111,7 @@ class ParticlesLayeredAdapter(SensorAdapter):
             vx_layers.append(vx)
         return vy_layers, vx_layers
 
-    def process(self, bgr: np.ndarray) -> Deformation:
+    def process(self, bgr: np.ndarray) -> Optional[Deformation]:
         self.frame_id += 1
 
         # 1) Apply Compensation, get balanced BGR

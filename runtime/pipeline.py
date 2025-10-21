@@ -184,21 +184,13 @@ class RuntimePipeline:
             from .sensors.particles_layered.adapter import ParticlesLayeredAdapter as Adapter
             self.adapter = Adapter(cfg, disp, writers)  # pass existing flags: unmix, compensation, flow, downscale
             print("[pipeline] Using ParticlesLayeredAdapter")
+        elif cfg.sensor.type in ("photometric", "gelsight", "gelsight_style"):
+            from .sensors.photometric.adapter import PhotometricAdapter as Adapter
+            self.adapter = Adapter(cfg, disp, writers)
+            print("[pipeline] Using PhotometricAdapter")
         else:
             raise ValueError("Unknown sensor.type")
 
-
-        compensator = None
-        if cfg.compensation_mode == CompensationMode.BASELINE:
-            compensator = BaselineCompensator(cfg.preproc)
-        elif cfg.compensation_mode == CompensationMode.PER_FRAME:
-            compensator = PerFrameCompensator(cfg.preproc)
-
-        unmix = None
-        if cfg.unmix.mode != UnmixMode.SKIP:
-            unmix = cfg.unmix
-        #if cfg.unmix_mode != UnmixMode.SKIP:
-        #    unmix = UnmixModel(cfg.unmix)
 
         # ----- Create Solvers -----
 
@@ -234,6 +226,9 @@ class RuntimePipeline:
                     self.adapter.prepare(bgr)
 
                 deformation = self.adapter.process(bgr)
+                if deformation is None:
+                    print("[pipeline] Warning: deformation is None; skipping frame.")
+                    continue
 
 
                 # 2) Solver

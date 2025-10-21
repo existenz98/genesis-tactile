@@ -55,6 +55,12 @@ python -m runtime.run_demo \
   --write_videos \
   --out outputs
 
+3. Gelsight-style photometric sensor demo
+python -m runtime.run_demo \
+  --source video   --input dataset/sequences/gelsight_press_slide_lift/video/sequence.mp4   --loop \
+  --config runtime/config/runtime_config_gelsight.yaml \
+  --vis2d --vis3d
+
 3. Image files Folder as input, 30fps playback speed
 
 python -m runtime.run_demo \
@@ -160,21 +166,6 @@ def main():
 
     # 3) CLI overlay
     cli_overlay(cfg, a)
-
-    if False:
-        cfg = RuntimeConfig(
-        source_mode=SourceMode(a.source),
-        input_path=a.input,
-        camera=CameraConfig(device_index=a.device, width=a.width or None, height=a.height or None, fps=None),
-        virtual=VirtualSourceConfig(fps=a.fps, loop=False),
-        compensation_mode=CompensationMode(a.compensation),
-        unmix_mode=UnmixMode(a.unmix),
-        flow=FlowConfig(method=FlowMethod(a.flow), incremental=False),
-        output=OutputConfig(write_videos=a.write_videos, dir=a.out, fps=a.out_fps),
-        display=DisplayConfig(enable=not a.no_display),
-        downscale=a.downscale,
-        max_frames=(a.max_frames or None),
-        )
 
     # Create the shared latest-value bus (between algo pipeline and 3D visualization)
     bus = FrameBus()

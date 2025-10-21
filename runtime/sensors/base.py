@@ -30,7 +30,7 @@ SensorAdapter base interface
 """
 
 from __future__ import annotations
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import numpy as np
 import time
 
@@ -65,7 +65,7 @@ class SensorAdapter:
         """
         raise NotImplementedError
 
-    def process(self, bgr: np.ndarray) -> Deformation:
+    def process(self, bgr: np.ndarray) -> Optional[Deformation]:
         """
         Return TIR Deformation for the given frame.
         """

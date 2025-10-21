@@ -61,6 +61,17 @@ outdir/
     rgb/000000.png ...
     sequence.mp4
 
+Generate gelsight style or tac3d style sequences by changing --sensor and --render-config.
+e.g.
+python src/dataset/gen_trajectory.py \
+  --outdir dataset/sequences/000001 \
+  --material src/config/material.yaml \
+  --sensor gelsight_style \
+  --render-config src/config/renderer_gelsight.yaml \
+  --spec src/config/trajectories/press_slide_lift.yaml \
+  --save_flow \
+  --write_video
+
 """
 
 from __future__ import annotations

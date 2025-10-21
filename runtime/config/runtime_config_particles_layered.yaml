@@ -2,24 +2,6 @@
 # Runtime configuration (streaming pipeline)
 # ==========================================
 
-# ---------- CHOOSE ONE SOURCE ----------
-# Options: camera | video | folder
-source_mode: video
-
-# For video/folder modes only:
-input_path: "data/demo.mp4"   # e.g. "data/frames_dir" when source_mode: folder
-
-camera:
-  device_index: 0             # used when source_mode: camera
-  width: null                 # null = leave driver default (e.g., 1280)
-  height: null                # null = leave default (e.g., 720)
-  fps: null                   # many UVC cams ignore this; leave null unless needed
-
-virtual:
-  fps: 30.0                   # pacing for video/folder playback
-  loop: false                 # loop playback when reaching the end
-
-
 # ---------- CORE MODULES ----------
 
 sensor:
@@ -28,16 +10,12 @@ sensor:
 # Photometric compensation: baseline | per_frame | skip
 compensation_mode: baseline
 
-# Color unmixing: kmeans | skip
-unmix_mode: kmeans
+unmix:
+  mode: kmeans
+  kmeans_samples: 150000
+  kmeans_iters: 40
+  reg: 1.0e-6
 
-flow:
-  # Optical flow backend: dis | farneback | tvl1
-  method: dis
-  vis_flow_max: null          # null => auto by 95th percentile
-  incremental: false          # false: compare to FIRST frame; true: incremental (not used yet)
-  ds_block: 16                # downsampled grid for algorithms
-  ds_pool: median
 
 # ---------- PERCEPTION PARAMS ----------
 # If your RuntimeConfig includes these nested configs (recommended):
@@ -50,20 +28,12 @@ preproc:
   smooth_kernel: 3
   smooth_iters: 1
 
-unmix:
-  kmeans_samples: 150000
-  kmeans_iters: 40
-  reg: 1.0e-6
 
-# ---------- OUTPUT ----------
-output:
-  write_videos: true
-  dir: "outputs"
-  fps: 20.0                   # writer FPS (used especially for folder input)
 
 # ---------- DEBUG DISPLAY (OpenCV windows) ----------
 display:
-  enable: true
+  enable: false
+
   window_scale: 1.0
   wait_key_ms: 1
   
@@ -86,13 +56,3 @@ display:
   show_flow_color_raw: true
   show_flow_quiver_raw: true
 
-  quiver_block: 16
-  quiver_pool: median
-  quiver_scale: 1.2
-  quiver_bg: black
-
-  
-
-# ---------- MISC ----------
-downscale: 0.5                # <1 to speed up
-max_frames: null              # null = unlimited; e.g., 300 to stop after N frames
