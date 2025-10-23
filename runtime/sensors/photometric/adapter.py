@@ -319,8 +319,8 @@ def _solve_normals_from_rgb(img_bgr: np.ndarray,
                             dir_g: np.ndarray,
                             dir_b: np.ndarray,
                             mask: Optional[np.ndarray] = None,
-                            pre_smooth_sigma: float = 0.8,
-                            post_smooth_sigma: float = 1.5) -> np.ndarray:
+                            pre_smooth_sigma: float = 0,
+                            post_smooth_sigma: float = 0) -> np.ndarray:
     """
     Analytic RGB photometric stereo with dot-aware inpainting.
     - Inputs and gains in linear [0,1] radiometry.
@@ -345,6 +345,10 @@ def _solve_normals_from_rgb(img_bgr: np.ndarray,
                                    sigmaY=pre_smooth_sigma,
                                    borderType=cv2.BORDER_REFLECT)
 
+    # Normalize light directions (in case input is not unit length)
+    dir_r = dir_r / (np.linalg.norm(dir_r) + 1e-8)
+    dir_g = dir_g / (np.linalg.norm(dir_g) + 1e-8)
+    dir_b = dir_b / (np.linalg.norm(dir_b) + 1e-8)
 
     # Normalize by pre-calibrated gains (e.g. from rest frame, also in 0..1 units)
     Ir = img_lin[..., 2] / float(gains_rgb[0])
@@ -367,8 +371,8 @@ def _solve_normals_from_rgb(img_bgr: np.ndarray,
     N = G / np.maximum(np.linalg.norm(G, axis=-1, keepdims=True), eps)  # N = G / ||G||
     
     # flip entire vector where Nz<0 (do not clamping Nz)
-    neg = N[..., 2] < 0.0
-    N[neg] = -N[neg]
+    #neg = N[..., 2] < 0.0
+    #N[neg] = -N[neg]
 
     # Optional small post-smoothing in normal space, then renormalize
     if post_smooth_sigma > 0:
@@ -522,6 +526,7 @@ def depth_to_gray_bgr(z_mm: np.ndarray,
     gray = (g * 255.0).astype(np.uint8)
     return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
+
 # ------------------------------ Adapter --------------------------------------
 
 class PhotometricAdapter(SensorAdapter):
@@ -661,12 +666,13 @@ class PhotometricAdapter(SensorAdapter):
             z0 = z0 - np.median(border_vals)
             self.rest_z_mm = z0
 
-            if self.cfg.display.show_normal_map:
-                Nvis = normals_to_rgb_bgr(normals0)
-                self.dbg_disp.show("gs normals rest", Nvis)
-            if self.cfg.display.show_depth_map:
-                zvis = hillshade_from_normals_bgr(normals0, light_dir=(0.4, 0.4, 0.82))
-                self.dbg_disp.show("gs depth rest", zvis)
+            # Debug Visualization
+            #if self.cfg.display.show_normal_map:
+            #    Nvis = normals_to_rgb_bgr(normals0)
+            #    self.dbg_disp.show("gs normals rest", Nvis)
+            #if self.cfg.display.show_depth_map:
+            #    zvis = hillshade_from_normals_bgr(normals0, light_dir=(0.4, 0.4, 0.82))
+            #    self.dbg_disp.show("gs depth rest", zvis)
 
 
 
@@ -779,19 +785,24 @@ class PhotometricAdapter(SensorAdapter):
                                     + z_mm[:, -10:].ravel().tolist())
             uz_mm = z_mm - self.rest_z_mm  # deformation in mm
 
-            # Debug visualization
-            if self.cfg.display.show_depth_map:
-                zvis = hillshade_from_normals_bgr(normals, light_dir=(0.4, 0.4, 0.82),
-                    ambient=0.35, diffuse=0.85, spec=0.0, shininess=16, clip_percent=0.5)
-                self.dbg_disp.show("gs depth (shaded)", zvis)
-                gray_bgr = depth_to_gray_bgr(uz_mm, vmin=-0.5, vmax=0.5, invert=True)
-                #print(f"[PhotometricAdapter] uz_mm min: {np.min(uz_mm):.4f}, max: {np.max(uz_mm):.4f}, median: {np.median(uz_mm):.4f} mm, rest_z = {np.median(self.rest_z_mm):.4f} mm")
-                #gray_bgr = depth_to_gray_bgr(uz_mm, vmin=None, vmax=None, clip_percent=0.5, invert=True)
-                self.dbg_disp.show("gs depth (gray)", gray_bgr)
+            # --- Debug visualization ---
 
             if self.cfg.display.show_normal_map:
+                # color normal map
                 Nvis = normals_to_rgb_bgr(normals)
-                self.dbg_disp.show("gs normals", Nvis)
+                self.dbg_disp.show("surface normals", Nvis)
+
+                # hillshade
+                #zvis = hillshade_from_normals_bgr(normals, light_dir=(0.4, 0.4, 0.82),
+                #    ambient=0.35, diffuse=0.85, spec=0.0, shininess=16, clip_percent=0.5)
+                #self.dbg_disp.show("gs depth (shaded)", zvis)
+
+            if self.cfg.display.show_depth_map:
+                # depth gray
+                gray_bgr = depth_to_gray_bgr(uz_mm, vmin=-0.5, vmax=0.5, invert=True)
+                self.dbg_disp.show("surface depth", gray_bgr)
+
+
             
             # Build 3D deformation data [ux(px), uy(px), uz(mm)]
             uxyz = np.stack([vx, vy, uz_mm], axis=-1).astype(np.float32)[None, ...]

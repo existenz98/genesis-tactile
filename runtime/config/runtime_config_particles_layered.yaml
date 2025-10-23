@@ -3,6 +3,7 @@
 # ==========================================
 
 # ---------- CORE MODULES ----------
+downscale: 1.0                # downscaling to half resolution
 
 sensor:
   type: particles_layered     # other options: particles | particles_layered | ... ...

@@ -153,8 +153,8 @@ def _lambert_image_bgr(
     l_g = _normalize(dir_g.reshape(1, 1, 3).astype(np.float32))
     l_b = _normalize(dir_b.reshape(1, 1, 3).astype(np.float32))
 
-    # Default gains so that flat n0=[0,0,1] → base_gray per channel
     if gains_rgb is None:
+        # Default gains so that flat n0=[0,0,1] leads to base_gray per channel
         n0 = np.array([0.0, 0.0, 1.0], dtype=np.float32).reshape(1, 1, 3)
         eps = 1e-6
         g_r = float(base_gray) / float(max(eps, float((l_r * n0).sum())))
@@ -311,7 +311,7 @@ class GelSightStyleRenderer(SensorRenderer):
         save_z = bool(render_cfg.get("save_depth_map", False))
         save_flow = bool(render_cfg.get("save_flow_from_markers", True))
 
-        base_gray = float(cfg.get("background_gray", 180.0))
+        base_gray = float(cfg.get("background_gray", 20.0))
 
         L = cfg.get("lighting", {})
         dir_r = np.asarray(L.get("dir_r", [0.577, 0.0, 0.816]), dtype=np.float32)

@@ -331,14 +331,28 @@ def main():
             dst = flat / f"{k:06d}.png"
             shutil.copy2(src, dst)
 
-        mp4_path = vid_dir / "sequence.mp4"
-        cmd = [
-            "ffmpeg", "-y",
-            "-framerate", str(spec.fps),
-            "-i", str(flat / "%06d.png"),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            str(mp4_path)
-        ]
+        if False:
+            # standard h264, small file size, but pretty lossy
+            mp4_path = vid_dir / "sequence.mp4"
+            cmd = [
+                "ffmpeg", "-y",
+                "-framerate", str(spec.fps),
+                "-i", str(flat / "%06d.png"),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                str(mp4_path)
+            ]
+        else:
+            # lossless RGB, larger file size
+            mp4_path = vid_dir / "sequence.mkv"
+            cmd = [
+                "ffmpeg", "-y",
+                "-framerate", str(spec.fps),
+                "-i", str(flat / "%06d.png"),
+                "-c:v", "ffv1",           # mathematically lossless
+                "-level", "3",            # modern bitstream
+                "-g", "1",                # intra-only frames (optional)
+                str(mp4_path.with_suffix(".mkv"))
+            ]
         try:
             subprocess.run(cmd, check=True)
             print(f"[video] wrote {mp4_path}")

@@ -3,6 +3,8 @@
 # ==========================================
 
 
+downscale: 1.0                # no downscaling
+
 sensor:
   type: gelsight     # other options: particles | particles_layered | ... ...
   params:

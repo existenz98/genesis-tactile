@@ -8,7 +8,7 @@ camera:
 view_mm: [40.0, 30.0]
 
 # Neutral gray when the surface is flat (no indentation)
-background_gray: 180   # 0..255
+background_gray: 20   # 0..255
 
 lighting:
   # Unit directions in camera/world frame (x right, y down, z up)
@@ -16,7 +16,8 @@ lighting:
   dir_r: [ 0.577,  0.000, 0.816 ]
   dir_g: [-0.289,  0.500, 0.816 ]
   dir_b: [-0.289, -0.500, 0.816 ]
-  gains_rgb: null      # if null, auto-computed so flat normal → background_gray
+  #gains_rgb: null      # if null, auto-computed so flat normal → background_gray
+  gains_rgb: [255.0, 255.0, 255.0]   # linear gains for R,G,B channels
 
 surface:
   z_mm: 3.9      # check 'material.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.

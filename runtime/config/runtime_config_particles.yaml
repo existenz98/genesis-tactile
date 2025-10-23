@@ -2,6 +2,10 @@
 # Runtime configuration (streaming pipeline)
 # ==========================================
 
+
+downscale: 1.0                # downscaling to half resolution
+
+
 sensor:
   type: particles          # other options: particles | particles_layered | ... ...
 
