@@ -296,18 +296,17 @@ def _estimate_channel_gains_from_rest(rest_bgr: np.ndarray,
     # inpaint first to avoid bias near dots
     rest_inp = _inpaint_bgr(rest_bgr, mask, radius=2)
 
-    # Compute median intensities
-    Ir = rest_inp[..., 2].astype(np.float32)
-    Ig = rest_inp[..., 1].astype(np.float32)
-    Ib = rest_inp[..., 0].astype(np.float32)
+    # use linear 0..1 units, not 0..255
+    Ir = (rest_inp[..., 2].astype(np.float32)) / 255.0
+    Ig = (rest_inp[..., 1].astype(np.float32)) / 255.0
+    Ib = (rest_inp[..., 0].astype(np.float32)) / 255.0
+
     m_r = float(np.median(Ir[mask == 0]))
     m_g = float(np.median(Ig[mask == 0]))
     m_b = float(np.median(Ib[mask == 0]))
 
-    # Compute gains
-    n0 = np.array([0.0, 0.0, 1.0], dtype=np.float32)    # surface normal at rest
+    n0 = np.array([0.0, 0.0, 1.0], dtype=np.float32)
     eps = 1e-6
-    # using equation I = g * (l dot n0) to get g.
     g_r = m_r / max(eps, float(np.dot(dir_r, n0)))
     g_g = m_g / max(eps, float(np.dot(dir_g, n0)))
     g_b = m_b / max(eps, float(np.dot(dir_b, n0)))
@@ -319,11 +318,14 @@ def _solve_normals_from_rgb(img_bgr: np.ndarray,
                             dir_r: np.ndarray,
                             dir_g: np.ndarray,
                             dir_b: np.ndarray,
-                            mask: Optional[np.ndarray] = None) -> np.ndarray:
+                            mask: Optional[np.ndarray] = None,
+                            pre_smooth_sigma: float = 0.8,
+                            post_smooth_sigma: float = 1.5) -> np.ndarray:
     """
-    Analytic RGB photometric stereo
-    - under Lambertian model with known light directions and per-channel gains.
-    Returns unit normals (H,W,3) with n_z >= 0.
+    Analytic RGB photometric stereo with dot-aware inpainting.
+    - Inputs and gains in linear [0,1] radiometry.
+    - Handles N_z<0 by flipping the whole vector.
+    - Optional tiny smoothing to remove pixelation.
     """
     H, W = img_bgr.shape[:2]
 
@@ -332,26 +334,48 @@ def _solve_normals_from_rgb(img_bgr: np.ndarray,
         img = _inpaint_bgr(img_bgr, mask, radius=2)
     else:
         img = img_bgr
+    
+    # ---- linearize to 0..1
+    img_lin = img.astype(np.float32) / 255.0
 
-    # Normalize by pre-calibrated gains (e.g. from rest frame)
-    Ir = img[..., 2].astype(np.float32) / float(gains_rgb[0])
-    Ig = img[..., 1].astype(np.float32) / float(gains_rgb[1])
-    Ib = img[..., 0].astype(np.float32) / float(gains_rgb[2])
+    # ---- pre-smoothing (removes quantization noise)
+    if pre_smooth_sigma > 0:
+        img_lin = cv2.GaussianBlur(img_lin, ksize=(0, 0),
+                                   sigmaX=pre_smooth_sigma,
+                                   sigmaY=pre_smooth_sigma,
+                                   borderType=cv2.BORDER_REFLECT)
+
+
+    # Normalize by pre-calibrated gains (e.g. from rest frame, also in 0..1 units)
+    Ir = img_lin[..., 2] / float(gains_rgb[0])
+    Ig = img_lin[..., 1] / float(gains_rgb[1])
+    Ib = img_lin[..., 0] / float(gains_rgb[2])
     I3 = np.stack([Ir, Ig, Ib], axis=-1)  # (H,W,3)
 
     # Light matrix L. rows are l_r, l_g, l_b
     L = np.stack([dir_r, dir_g, dir_b], axis=0).astype(np.float32)  # (3,3)
     L_inv = np.linalg.inv(L)
 
-    # G = L^{-1} I' , G is unnormalized normal * albedo
-    G = I3 @ L_inv.T  # (H,W,3)
+    # Solve for unnormalized "normals * albedo" : G = L^{-1} I' ,   given L dot G = I
+    # method 1. Explicit matrix multiplication
+    G = I3 @ L_inv.T    # (H,W,3)
+    # method 2. Using linear solver
+    #G = np.linalg.solve(L, I3.reshape(-1, 3).T).T.reshape(I3.shape)
 
-    # Clamp nz positive and normalize
+    # Normalize to unit normals
     eps = 1e-8
-    nz = np.maximum(G[..., 2], 1e-6)
     N = G / np.maximum(np.linalg.norm(G, axis=-1, keepdims=True), eps)  # N = G / ||G||
-    N[..., 2] = np.clip(N[..., 2], 1e-6, 1.0)   # ensure nz >= 0
-    N = N / np.maximum(np.linalg.norm(N, axis=-1, keepdims=True), eps)  # renormalize by new nz
+    
+    # flip entire vector where Nz<0 (do not clamping Nz)
+    neg = N[..., 2] < 0.0
+    N[neg] = -N[neg]
+
+    # Optional small post-smoothing in normal space, then renormalize
+    if post_smooth_sigma > 0:
+        for c in range(3):
+            N[..., c] = cv2.GaussianBlur(N[..., c], (0, 0), post_smooth_sigma)
+        N = N / np.maximum(np.linalg.norm(N, axis=-1, keepdims=True), eps)
+
     return N.astype(np.float32)
 
 
