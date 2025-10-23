@@ -40,10 +40,12 @@ class Deformation:
       - C=3  -> 3D surface displacement    [ux, uy, uz] in *millimeters*
     L: number of layers (1 for single-layer sensors; >1 for multilayer).
     z_of_layer: optional (L,) depths in millimeters (top surface z=0 by convention).
-    kind: '2d' or 'surface3d'  (just a guardrail)
+    kind:
+      - '2d' deformation info is only 2D displacements.  Including single layer 2D, or multi-layer 2D
+     -  '3d' deformation info is 3D
     """
     data: np.ndarray              # shape (L, H, W, C) float32
-    kind: str                     # '2d' | 'surface3d'
+    kind: str                     # '2d' | '3d'
     meta: TirMeta
     z_of_layer: Optional[np.ndarray] = None  # (L,)
     debug: Optional[Dict[str, Any]] = None   # optional images/overlays
@@ -82,10 +84,10 @@ class Deformation:
 
     def uxuyuz(self) -> tuple:
         """
-        Return (ux, uy, uz) if kind='surface3d', (L,H,W) each.
+        Return (ux, uy, uz) if kind='3d', (L,H,W) each.
         """
-        if self.kind != 'surface3d' or self.C() != 3: 
-            raise ValueError("[TirDeformation] Error: uxuyuz() called but kind is not 'surface3d' with C=3.")
+        if self.kind != '3d' or self.C() != 3: 
+            raise ValueError("[TirDeformation] Error: uxuyuz() called but kind is not '3d' with C=3.")
         d = self._average_to_single_layer().data[0]   # (H,W,3)
         return d[...,0], d[...,1], d[...,2]
 
@@ -103,9 +105,9 @@ class Deformation:
         return d[..., 0], d[..., 1]     # (H,W), (H,W)
 
     def uxuyuz_layer(self, k: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """For kind='surface3d': return (ux_k, uy_k, uz_k) views of shape (H,W)."""
-        if self.kind != 'surface3d' or self.C() != 3:
-            raise ValueError("[TirDeformation] Error: uxuyuz_layer() requires kind='surface3d' with C=3.")
+        """For kind='3d': return (ux_k, uy_k, uz_k) views of shape (H,W)."""
+        if self.kind != '3d' or self.C() != 3:
+            raise ValueError("[TirDeformation] Error: uxuyuz_layer() requires kind='3d' with C=3.")
         d = self.data[k, ...]  # (H,W,3) view
         return d[..., 0], d[..., 1], d[..., 2]      # (H,W), (H,W), (H,W)
 
@@ -115,12 +117,12 @@ def to_flow2d_pixels(deform: Deformation) -> tuple[np.ndarray, np.ndarray]:
     """
     Convert Deformation to 2D flow in pixels (vy, vx).
       - If deform.kind == '2d': return averaged (vy, vx) in pixels.
-      - If deform.kind == 'surface3d': return (uy, ux) converted to pixels, ignore uz.
+      - If deform.kind == '3d': return (uy, ux) converted to pixels, ignore uz.
         (Note: image coords are y-down, x-right; units mm -> pixels via mm_per_px.)
     """
     if deform.kind == '2d':
         return deform.vyvx()
-    elif deform.kind == 'surface3d':
+    elif deform.kind == '3d':
         ux, uy, uz = deform.uxuyuz()
         mpp = deform.meta.mm_per_px
         vy = uy / mpp

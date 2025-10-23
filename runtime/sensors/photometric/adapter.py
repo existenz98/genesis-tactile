@@ -70,8 +70,7 @@ from synth import deform
 from ...config.settings import RuntimeConfig
 from ...output.display import DebugDisplay
 from ...output.visualizer import (
-    flow_to_color_bgr, draw_quiver_bgr, draw_quiver_grid_bgr,
-    scalar_to_color_bgr, VideoWriters
+    flow_to_color_bgr, draw_quiver_bgr, draw_quiver_grid_bgr, VideoWriters
 )
 from ...preprocessing.optical_flow import to_gray_f32_bgr
 from ...tir.types import Deformation
@@ -82,6 +81,9 @@ from ..base import SensorAdapter
 def _to_gray(img_bgr: np.ndarray) -> np.ndarray:
     g = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     return g.astype(np.uint8)
+
+
+# ---------------------------- Marker Grid ----------------------------------
 
 def _detect_dot_centers(gray_u8: np.ndarray,
                         thresh: int,
@@ -261,6 +263,241 @@ def _bilinear_dense_from_grid(flow_gx: np.ndarray, flow_gy: np.ndarray,
     return vy, vx
 
 
+# ---------------------- photometric stereo helper: dot mask + inpainting ---------------------------
+
+def _dot_mask(gray_u8: np.ndarray, thresh: int, dilate: int = 2) -> np.ndarray:
+    """Binary mask (uint8 in {0,255}) of marker dots (dilated)."""
+    _, bw = cv2.threshold(gray_u8, thresh, 255, cv2.THRESH_BINARY_INV)
+    if dilate > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*dilate+1, 2*dilate+1))
+        bw = cv2.dilate(bw, k, iterations=1)
+    return bw
+
+def _inpaint_bgr(img_bgr: np.ndarray, mask: np.ndarray, radius: int = 2) -> np.ndarray:
+    """Per-channel Telea inpainting for masked pixels (fast, good quality)."""
+    # OpenCV expects mask 0/255
+    return cv2.inpaint(img_bgr, mask, inpaintRadius=radius, flags=cv2.INPAINT_TELEA)
+
+
+# ---------------------- photometric stereo core -------------------------
+
+def _estimate_channel_gains_from_rest(rest_bgr: np.ndarray,
+                                      mask: np.ndarray,
+                                      dir_r: np.ndarray,
+                                      dir_g: np.ndarray,
+                                      dir_b: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Estimate channel gains g_r, g_g, g_b
+    Should run it on the initial rest (flat) frame.
+    Using median intensity outside the dot mask and the known l_c dot n0 (n0=[0,0,1]).
+
+    dir_r, dir_g, dir_b: light directions for each channel (unit vectors).
+    """
+    # inpaint first to avoid bias near dots
+    rest_inp = _inpaint_bgr(rest_bgr, mask, radius=2)
+
+    # Compute median intensities
+    Ir = rest_inp[..., 2].astype(np.float32)
+    Ig = rest_inp[..., 1].astype(np.float32)
+    Ib = rest_inp[..., 0].astype(np.float32)
+    m_r = float(np.median(Ir[mask == 0]))
+    m_g = float(np.median(Ig[mask == 0]))
+    m_b = float(np.median(Ib[mask == 0]))
+
+    # Compute gains
+    n0 = np.array([0.0, 0.0, 1.0], dtype=np.float32)    # surface normal at rest
+    eps = 1e-6
+    # using equation I = g * (l dot n0) to get g.
+    g_r = m_r / max(eps, float(np.dot(dir_r, n0)))
+    g_g = m_g / max(eps, float(np.dot(dir_g, n0)))
+    g_b = m_b / max(eps, float(np.dot(dir_b, n0)))
+    return g_r, g_g, g_b
+
+
+def _solve_normals_from_rgb(img_bgr: np.ndarray,
+                            gains_rgb: Tuple[float, float, float],
+                            dir_r: np.ndarray,
+                            dir_g: np.ndarray,
+                            dir_b: np.ndarray,
+                            mask: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Analytic RGB photometric stereo
+    - under Lambertian model with known light directions and per-channel gains.
+    Returns unit normals (H,W,3) with n_z >= 0.
+    """
+    H, W = img_bgr.shape[:2]
+
+    # Inpaint to remove dot contamination
+    if mask is not None:
+        img = _inpaint_bgr(img_bgr, mask, radius=2)
+    else:
+        img = img_bgr
+
+    # Normalize by pre-calibrated gains (e.g. from rest frame)
+    Ir = img[..., 2].astype(np.float32) / float(gains_rgb[0])
+    Ig = img[..., 1].astype(np.float32) / float(gains_rgb[1])
+    Ib = img[..., 0].astype(np.float32) / float(gains_rgb[2])
+    I3 = np.stack([Ir, Ig, Ib], axis=-1)  # (H,W,3)
+
+    # Light matrix L. rows are l_r, l_g, l_b
+    L = np.stack([dir_r, dir_g, dir_b], axis=0).astype(np.float32)  # (3,3)
+    L_inv = np.linalg.inv(L)
+
+    # G = L^{-1} I' , G is unnormalized normal * albedo
+    G = I3 @ L_inv.T  # (H,W,3)
+
+    # Clamp nz positive and normalize
+    eps = 1e-8
+    nz = np.maximum(G[..., 2], 1e-6)
+    N = G / np.maximum(np.linalg.norm(G, axis=-1, keepdims=True), eps)  # N = G / ||G||
+    N[..., 2] = np.clip(N[..., 2], 1e-6, 1.0)   # ensure nz >= 0
+    N = N / np.maximum(np.linalg.norm(N, axis=-1, keepdims=True), eps)  # renormalize by new nz
+    return N.astype(np.float32)
+
+
+def _frankot_chellappa(p: np.ndarray, q: np.ndarray, dx_mm: float, dy_mm: float) -> np.ndarray:
+    """
+    Frankot-Chellappa integration
+    Basic idea is to integrate gradients in frequency domain.
+    Inputs:
+    - p = dz/dx
+    - q = dz/dy
+    - anisotropic grid spacing (dx_mm, dy_mm).
+    Returns z in millimeters (up to an additive constant).
+    """
+    H, W = p.shape
+
+    # Frequency domain grids with physical spacing, not pixel spacing.
+    wx = 2.0 * np.pi * np.fft.fftfreq(W, d=dx_mm).astype(np.float32)  # (W,)
+    wy = 2.0 * np.pi * np.fft.fftfreq(H, d=dy_mm).astype(np.float32)  # (H,)
+    WX, WY = np.meshgrid(wx, wy, indexing="xy")
+
+    # FFT of p, q
+    P = np.fft.fft2(p); Q = np.fft.fft2(q)
+
+    # denominator is |w|^2
+    denom = (WX**2 + WY**2).astype(np.float32)
+    denom[0, 0] = 1.0
+
+    # Integrate in frequency domain
+    Z = (-1j * WX * P - 1j * WY * Q) / denom
+
+    # remove DC component
+    Z[0, 0] = 0.0
+
+    # Inverse FFT to get z
+    z = np.real(np.fft.ifft2(Z)).astype(np.float32)
+
+    return z
+
+
+#---- Visualization helpers ----
+def normals_to_rgb_bgr(normals: np.ndarray,
+                       gain=(10.0, 10.0, 1.0),   # (gx, gy, gz)
+                       gamma: float = 0.8) -> np.ndarray:
+    """
+    Color visualization of unit normals as RGB.
+    """
+    n = normals.astype(np.float32)
+    # ensure unit length
+    n /= np.maximum(np.linalg.norm(n, axis=-1, keepdims=True), 1e-8)
+    # apply per-axis gain
+    n[..., 0] *= float(gain[0])   # boosts R (Nx)
+    n[..., 1] *= float(gain[1])   # boosts G (Ny)
+    n[..., 2] *= float(gain[2])   # boosts B (Nz)
+    # clamp back to valid range
+    n = np.clip(n, -1.0, 1.0)
+    # map [-1,1] -> [0,1]
+    rgb = 0.5 * (n + 1.0)
+    # gamma for punchier midtones
+    if gamma != 1.0:
+        rgb = np.power(np.clip(rgb, 0.0, 1.0), 1.0 / float(gamma))
+    # to uint8 BGR for OpenCV
+    rgb8 = (rgb * 255.0).astype(np.uint8)
+    bgr8 = rgb8[..., [2, 1, 0]]
+    return bgr8
+
+def hillshade_from_normals_bgr(normals: np.ndarray,
+                               light_dir=(0.4, 0.4, 0.82),
+                               ambient=0.35,
+                               diffuse=0.85,
+                               spec=0.0,
+                               shininess=16,
+                               clip_percent=0.5,
+                               mask: np.ndarray | None = None) -> np.ndarray:
+    """
+    Grayscale shading image from unit normals.
+    normals: (H,W,3) float32 in [-1,1], assumed unit (will re-normalize just in case)
+    Returns BGR uint8 image for OpenCV display.
+    """
+    n = normals.astype(np.float32)
+    n /= np.maximum(np.linalg.norm(n, axis=-1, keepdims=True), 1e-8)
+
+    l = np.asarray(light_dir, np.float32)
+    l /= (np.linalg.norm(l) + 1e-8)
+
+    ndotl = np.clip((n * l).sum(-1), 0.0, 1.0)  # (H,W)
+    I = ambient + diffuse * ndotl
+
+    if spec > 0.0:
+        v = np.array([0, 0, 1], np.float32)              # view toward +z
+        r = 2.0 * ndotl[..., None] * n - l               # reflect(l,n)
+        spec_term = np.clip((r * v).sum(-1), 0.0, 1.0) ** shininess
+        I = I + spec * spec_term
+
+    if mask is not None:
+        # Optional: suppress shading where normals are invalid (e.g., masked dots)
+        I = np.where(mask.astype(bool), I, I)
+
+    # gentle contrast normalization
+    lo, hi = np.percentile(I, [clip_percent, 100.0 - clip_percent])
+    if hi > lo:
+        I = (I - lo) / (hi - lo)
+    I = np.clip(I, 0, 1)
+    gray = (I * 255.0).astype(np.uint8)
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+def depth_to_gray_bgr(z_mm: np.ndarray,
+                      vmin: float | None = None,
+                      vmax: float | None = None,
+                      clip_percent: float = 0.5,
+                      invert: bool = False) -> np.ndarray:
+    """
+    Convert a depth map (mm) to a grayscale BGR image for display.
+
+    Args:
+      z_mm: (H,W) float depth, mm.
+      vmin, vmax: fixed display range in mm. If None, use robust percentiles.
+      clip_percent: when vmin/vmax are None, trim that % from each tail.
+      invert: if True, deeper (more positive) is darker.
+
+    Returns:
+      BGR uint8 image suitable for DebugDisplay.show().
+    """
+    z = z_mm.astype(np.float32)
+
+    # Pick display range
+    if (vmin is None) or (vmax is None):
+        # auto range from robust percentiles
+        lo, hi = np.percentile(z, [clip_percent, 100.0 - clip_percent])
+        if hi <= lo:
+            lo, hi = float(z.min()), float(z.max())
+    else:
+        lo, hi = float(vmin), float(vmax)
+        if hi <= lo:
+            hi = lo + 1e-6
+
+    # Normalize to [0,1]
+    g = (z - lo) / (hi - lo)
+    g = np.clip(g, 0.0, 1.0)
+
+    # Optional invert
+    if invert:
+        g = 1.0 - g
+
+    gray = (g * 255.0).astype(np.uint8)
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
 # ------------------------------ Adapter --------------------------------------
 
 class PhotometricAdapter(SensorAdapter):
@@ -269,7 +506,8 @@ class PhotometricAdapter(SensorAdapter):
       - Detect and index regular dot grid from scratch per frame (no temporal dependence).
       - Build sparse grid displacement (pixels) vs. rest state.
       - Interpolate to a dense (H,W) field and pack as Deformation(kind='2d') for the solver.
-      - TODO: add 3D deformation (ux,uy,uz), depth to be implemented via PS.
+      - Photometric stereo normals and depth (mm) with dot-aware inpainting.
+      - 3D deformation: [ux(px), uy(px), uz(mm)].   (first two channels is 2D deformation in pixel units)
 
     Notes:
       - Expects input frames already downscaled by cfg.downscale.
@@ -283,18 +521,35 @@ class PhotometricAdapter(SensorAdapter):
         super().__init__(cfg, dbg_disp, dbg_writers)
 
         s = getattr(cfg, "sensor", None)
-        print("[GelSightAdapter] Initializing with sensor params:", s)
-        
+        print("[PhotometricAdapter] Initializing with sensor params:", s)
+
+        # Marker grid params:        
         self.nx: int = int(getattr(s, "nx", 40))
         self.ny: int = int(getattr(s, "ny", 30))
         self.dot_thresh: int = int(getattr(s, "dot_thresh", 40))
         self.min_area: int = int(getattr(s, "min_area", 5))
         self.max_area: int = int(getattr(s, "max_area", 60))
 
-        # Precomputed rest-state data on first frame
+        # Photometric stereo params:
+        L = getattr(s, "lighting", None)
+        # Light direction
+        self.dir_r = np.array(getattr(L, "dir_r", [ 0.577,  0.000, 0.816]), dtype=np.float32)
+        self.dir_g = np.array(getattr(L, "dir_g", [-0.289,  0.500, 0.816]), dtype=np.float32)
+        self.dir_b = np.array(getattr(L, "dir_b", [-0.289, -0.500, 0.816]), dtype=np.float32)
+        # note: for generating synthetic data, setting is in renderer_gelsight.yaml
+
+        self.inpaint_radius: int = int(getattr(s, "inpaint_radius", 2))
+        self.enable_depth: bool = bool(getattr(s, "enable_depth", True))
+
+        # Rest-state of marker grid (computed on first frame)
         self.rest_grid_uv: Optional[np.ndarray] = None   # (ny, nx, 2) float32
         self.T: Optional[np.ndarray] = None              # pixels <- grid  (3x3)
         self.T_inv: Optional[np.ndarray] = None          # grid   <- pixels (3x3)
+
+        # Rest-state photometric gains (computed on first frame)
+        self.ps_gains_rgb: Optional[Tuple[float, float, float]] = None
+
+        self.rest_z_mm: Optional[np.ndarray] = None
 
         # 3D deformation
         self.deformation3d: Optional[Deformation] = None
@@ -302,17 +557,24 @@ class PhotometricAdapter(SensorAdapter):
     def prepare(self, first_bgr: np.ndarray) -> None:
         """
         Build rest-state grid
-        - detect dots
-        - index (i,j)
-        - fit affine map pixels<->grid.
+        - Estimate marker grid rest state
+          - detect dots
+          - index (i,j)
+          - fit affine map pixels<->grid.
+        - Estimate photometric gains from rest frame.
+          - dot mask + inpaint
+          - median intensities outside dots
+          - compute gains.
         """
-        print("[GelSightAdapter] prepare()")
+        print("[PhotometricAdapter] prepare()")
+
+        # --- 1) Marker grid at rest (for 2D flow) ---
 
         # Detect dots in first frame
         gray = _to_gray(first_bgr)
         centers = _detect_dot_centers(gray, self.dot_thresh, self.min_area, self.max_area)
         if centers.shape[0] != self.nx * self.ny:
-            print(f"[GelSightAdapter] WARNING: detected {centers.shape[0]} dots; expected {self.nx*self.ny}. "
+            print(f"[PhotometricAdapter] WARNING: detected {centers.shape[0]} dots; expected {self.nx*self.ny}. "
                   f"Trying anyway with PCA indexer.")
         idx_ij = _index_grid_from_points(centers, self.nx, self.ny)  # (N,2) int
 
@@ -340,28 +602,78 @@ class PhotometricAdapter(SensorAdapter):
                 for i in range(self.nx):
                     u, v = int(round(grid_uv[j, i, 0])), int(round(grid_uv[j, i, 1]))
                     cv2.circle(overlay, (u, v), 1, (0, 0, 255), -1)
-            self.dbg_disp.show("gs_rest_markers", overlay)
+            self.dbg_disp.show("gs rest markers", overlay)
+
+        # --- 2) Photometric stereo calibration (gains) + rest depth ---
+        if self.enable_depth:
+            # calibrate per color gains
+            scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
+            inpaint_r = max(1, int(round(self.inpaint_radius / max(scale, 1e-6))))
+            dotmask = _dot_mask(gray, self.dot_thresh, dilate=inpaint_r)
+            self.ps_gains_rgb = _estimate_channel_gains_from_rest(
+                first_bgr, dotmask, self.dir_r, self.dir_g, self.dir_b
+            )
+
+            # compute normals at rest
+            normals0 = _solve_normals_from_rgb(first_bgr, self.ps_gains_rgb,
+                                               self.dir_r, self.dir_g, self.dir_b, mask=dotmask)
+            # slopes from normals
+            nz = np.maximum(normals0[..., 2], 1e-6)
+            p0 = -normals0[..., 0] / nz
+            q0 = -normals0[..., 1] / nz
+
+            # integrate to get rest depth
+            mm_per_px = float(self.cfg.physics.mm_per_px)
+            scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
+            mm_per_px_eff = float(self.cfg.physics.mm_per_px) / (scale if scale > 0 else 1.0)
+            z0 = _frankot_chellappa(p0, q0, dx_mm=mm_per_px_eff, dy_mm=mm_per_px_eff)
+
+            # Anchor depth: subtract median of 10px border to ~0 outside contact
+            border = 10
+            border_vals = np.concatenate([
+                z0[:border, :].ravel(), z0[-border:, :].ravel(),
+                z0[:, :border].ravel(), z0[:, -border:].ravel()
+            ])
+            z0 = z0 - np.median(border_vals)
+            self.rest_z_mm = z0
+
+            if self.cfg.display.show_normal_map:
+                Nvis = normals_to_rgb_bgr(normals0)
+                self.dbg_disp.show("gs normals rest", Nvis)
+            if self.cfg.display.show_depth_map:
+                zvis = hillshade_from_normals_bgr(normals0, light_dir=(0.4, 0.4, 0.82))
+                self.dbg_disp.show("gs depth rest", zvis)
+
+
 
     def process(self, bgr: np.ndarray) -> Optional[Deformation]:
         """
         Per-frame:
-          - Detect dots & re-index (no temporal dependence).
-          - Compute grid flow (def - rest) at nodes in pixel units.
-          - Interpolate to dense vy, vx.
-          - Return Deformation(kind='2d').
-          - TODO: compute deformation3d.
+          - Marker grid flow (2D deformation in pixel units).
+            - Detect dots & re-index (no temporal dependence).
+            - Compute grid flow (def - rest) at nodes in pixel units.
+            - Interpolate to dense vy, vx.  get Deformation(kind='2d').
+          - Photometric stereo depth (3D deformation in mm).
+            - dot mask + inpaint
+            - solve normals
+            - integrate to depth
+            - get Deformation(kind='3d') with (ux, uy, uz).
         """
         self.frame_id += 1
 
+        deform2d = None
+        deform3d = None
+
+
         if self.rest_grid_uv is None or self.T_inv is None:
-            print("[GelSightAdapter] Error: rest grid is None.  prepare() must be called before process().")
+            print("[PhotometricAdapter] Error: rest grid is None.  prepare() must be called before process().")
             return None
 
         # 1) Detect dots
         gray = _to_gray(bgr)
         centers = _detect_dot_centers(gray, self.dot_thresh, self.min_area, self.max_area)
         if centers.shape[0] != self.nx * self.ny:
-            print(f"[GelSightAdapter] Error: detected {centers.shape[0]} dots; expected {self.nx*self.ny}.")
+            print(f"[PhotometricAdapter] Error: detected {centers.shape[0]} dots; expected {self.nx*self.ny}.")
             return None
 
         # 2) Build grid order (ny, nx, 2)
@@ -417,18 +729,56 @@ class PhotometricAdapter(SensorAdapter):
             z_of_layer=None, debug=None
         )
 
-        # 3D deformation
-        # to be filled by photometric stereo,
-        # for just zero field (mm).
-        if False:  # flip to True once PS is implemented
-            H3, W3 = H, W
-            uxyz = np.zeros((1, H3, W3, 3), dtype=np.float32)
-            self.deformation3d = Deformation(
+        # ---- 3D deformation via photometric stereo (uz in mm) ----
+        uxyz = None
+        if self.enable_depth and self.ps_gains_rgb is not None and self.rest_z_mm is not None:
+
+            # Solve normals
+            scale = float(self.cfg.downscale) if self.cfg.downscale else 1.0
+            inpaint_r = max(1, int(round(self.inpaint_radius / max(scale, 1e-6))))
+            dotmask = _dot_mask(gray, self.dot_thresh, dilate=inpaint_r)
+            normals = _solve_normals_from_rgb(bgr, self.ps_gains_rgb,
+                                              self.dir_r, self.dir_g, self.dir_b, mask=dotmask)
+            # Slopes
+            nz = np.maximum(normals[..., 2], 1e-6)
+            p = -normals[..., 0] / nz
+            q = -normals[..., 1] / nz
+
+            # Integrate to get depth
+            mm_per_px = float(self.cfg.physics.mm_per_px)
+            z_mm = _frankot_chellappa(p, q, dx_mm=mm_per_px, dy_mm=mm_per_px)
+
+            # Anchor z to z estimated from rest frame
+            z_mm = z_mm - np.median(z_mm[:10, :].ravel().tolist()
+                                    + z_mm[-10:, :].ravel().tolist()
+                                    + z_mm[:, :10].ravel().tolist()
+                                    + z_mm[:, -10:].ravel().tolist())
+            uz_mm = z_mm - self.rest_z_mm  # deformation in mm
+
+            # Debug visualization
+            if self.cfg.display.show_depth_map:
+                zvis = hillshade_from_normals_bgr(normals, light_dir=(0.4, 0.4, 0.82),
+                    ambient=0.35, diffuse=0.85, spec=0.0, shininess=16, clip_percent=0.5)
+                self.dbg_disp.show("gs depth (shaded)", zvis)
+                gray_bgr = depth_to_gray_bgr(uz_mm, vmin=-0.5, vmax=0.5, invert=True)
+                #print(f"[PhotometricAdapter] uz_mm min: {np.min(uz_mm):.4f}, max: {np.max(uz_mm):.4f}, median: {np.median(uz_mm):.4f} mm, rest_z = {np.median(self.rest_z_mm):.4f} mm")
+                #gray_bgr = depth_to_gray_bgr(uz_mm, vmin=None, vmax=None, clip_percent=0.5, invert=True)
+                self.dbg_disp.show("gs depth (gray)", gray_bgr)
+
+            if self.cfg.display.show_normal_map:
+                Nvis = normals_to_rgb_bgr(normals)
+                self.dbg_disp.show("gs normals", Nvis)
+            
+            # Build 3D deformation data [ux(px), uy(px), uz(mm)]
+            uxyz = np.stack([vx, vy, uz_mm], axis=-1).astype(np.float32)[None, ...]
+            deform3d = Deformation(
                 data=uxyz, kind='3d',
-                meta=self._mk_meta(H3, W3),
+                meta=self._mk_meta(H, W),
                 z_of_layer=None, debug=None
             )
+
+        if deform3d is not None:
+            return deform3d
         else:
-            self.deformation3d = None
-        
-        return deform2d
+            return deform2d
+

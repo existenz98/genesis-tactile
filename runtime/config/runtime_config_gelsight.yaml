@@ -6,11 +6,24 @@
 sensor:
   type: gelsight     # other options: particles | particles_layered | ... ...
   params:
+    # marker
     nx: 40
     ny: 30
     dot_thresh: 40
     min_area: 5
     max_area: 60
+
+    # photometric surface
+    enable_depth: true  
+    inpaint_radius: 2
+    lighting:
+      dir_r: [ 0.577,  0.000, 0.816 ]
+      dir_g: [-0.289,  0.500, 0.816 ]
+      dir_b: [-0.289, -0.500, 0.816 ]
+  
+
+#physics:
+#  mm_per_px: 0.0625    # 40mm/640px == 30mm/480px
 
 # ---------- DEBUG DISPLAY (OpenCV windows) ----------
 display:
@@ -22,6 +35,9 @@ display:
   
   show_flow_color_raw: true
   show_flow_quiver_raw: true
+
+  show_normal_map: true
+  show_depth_map: true
 
 
   

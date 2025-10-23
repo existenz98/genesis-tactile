@@ -99,14 +99,16 @@ class DisplayConfig:
     enable: bool = False          # enable 2D Debug Windows
     window_scale: float = 1.0     # resize display windows
     wait_key_ms: int = 1          # cv2.waitKey delay per frame, 0 will block until key press.
+
     show_input: bool = True
+
     show_compensated: bool = True
+
     show_seg_color: bool = True   # color segmentation (argmax of components)
     show_seg_R: bool = False      # grayscale component maps
     show_seg_G: bool = False
     show_seg_B: bool = False
 
-   
     # Color visualization of flow
     show_flow_color_R: bool = True
     show_flow_color_G: bool = True
@@ -128,6 +130,11 @@ class DisplayConfig:
     quiver_draw_centers: bool = True        # draw center dots for reference
     quiver_color: tuple = (255, 255, 255)   # BGR
     quiver_bg: str = "black"                # "black" | "white"
+
+    # 3D Visualization
+    show_normal_map: bool = False
+    show_depth_map: bool = False
+
 
 
 @dataclass
