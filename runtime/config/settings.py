@@ -292,7 +292,7 @@ class RuntimeConfig:
     source_mode: SourceMode = SourceMode.VIDEO
     input_path: str = ""          # for VIDEO/FOLDER modes
     is_folder: bool = False       # deprecated; use source_mode
-    camera: CameraConfig = CameraConfig()
+
     camera: CameraConfig = field(default_factory=CameraConfig)
     virtual: VirtualSourceConfig = field(default_factory=VirtualSourceConfig)
 

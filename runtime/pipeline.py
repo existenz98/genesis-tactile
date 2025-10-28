@@ -188,6 +188,10 @@ class RuntimePipeline:
             from .sensors.photometric.adapter import PhotometricAdapter as Adapter
             self.adapter = Adapter(cfg, disp, writers)
             print("[pipeline] Using PhotometricAdapter")
+        elif cfg.sensor.type in ("tac3d"):
+            from .sensors.stereo_markers.adapter import Tac3DAdapter as Adapter
+            self.adapter = Adapter(cfg, disp, writers)
+            print("[pipeline] Using Tac3DAdapter")
         else:
             raise ValueError("Unknown sensor.type")
 

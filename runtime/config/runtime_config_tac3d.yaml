@@ -1,0 +1,65 @@
+# ==========================================
+# Runtime configuration mirror-stereo (tac3d style)
+# ==========================================
+
+downscale: 1.0
+
+# ---- Tac3D sensor adapter ----
+sensor:
+  type: tac3d
+
+  params:
+    # --- Lattice (set to your dot grid size) ---
+    nx: 18
+    ny: 19
+
+    # --- Bright-dot detection ---
+    dot_thresh: 180        # tune per sequence
+    min_area: 20
+    max_area: 2000
+    subpixel: "ellipse"    # "ellipse" | "moments"
+
+    # --- Intrinsics (pixels) ---
+    # derived from view_mm=[40,30], z_ref_mm=20, img_wh=[640,480] -> fx=fy=320; cx=320, cy=240
+    fx: 320.0
+    fy: 320.0
+    cx: 320.0
+    cy: 240.0
+
+    # --- Real camera center and mirror plane (mm), same frame as intrinsics ---
+    # These need to match real hardware settings or the synthetic renderer_tac3d.yaml:
+    #   camera center C = [0.5*Lx, 0.5*Ly, -z_cam_mm] = [20, 15, -20]
+    #   mirror plane: normal [-1,0,0], point [17, 15, 0]
+    cam_center_mm:  [20.0, 15.0, -20.0]
+    mirror_normal:  [-1.0, 0.0, 0.0]
+    mirror_point_mm: [17.0, 15.0, 0.0]
+
+    # --- Panel ROIs inside the composite frame (pixels) ---
+    panel_w: 640
+    panel_h: 480
+    left_offset:  [0,   0]     # left (mirrored) panel ROI origin
+    right_offset: [640, 0]     # right (real) panel ROI origin
+
+    # --- (Optional) physical grid info for sanity checks/visualization ---
+    spacing_mm: 2.23
+    diameter_mm: 1.0
+
+    # --- Output controls ---
+    output_kind: "3d"          # "2d" to drop uz
+    return_confidence: true
+
+
+
+# ---- Display/recording toggles (safe defaults) ----
+display:
+  enable: false
+
+  show_input: true
+  show_flow_color_raw: false
+  show_flow_quiver_raw: false
+  show_normal_map: false
+  show_depth_map: false
+
+vis3d:
+  enable: false
+
