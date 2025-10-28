@@ -89,7 +89,7 @@ def _regular_dot_grid_xy0(
 
 
 def _euler_deg_to_R(rx_deg: float, ry_deg: float, rz_deg: float, order: str = "ZYX") -> np.ndarray:
-    """Rotation matrix R from Euler angles in degrees. Default order: R = Rz * Ry * Rx."""
+    """Rotation matrix R from Euler angles in degrees. Default order "ZYX" yields R = Rx * Ry * Rz."""
     rx = np.deg2rad(rx_deg); ry = np.deg2rad(ry_deg); rz = np.deg2rad(rz_deg)
     cx, sx = np.cos(rx), np.sin(rx)
     cy, sy = np.cos(ry), np.sin(ry)
@@ -101,6 +101,7 @@ def _euler_deg_to_R(rx_deg: float, ry_deg: float, rz_deg: float, order: str = "Z
     R = np.eye(3, dtype=np.float32)
     for ax in order:
         R = M[ax] @ R
+    # note: change to R = R @ M[ax] will behave as: "ZYX" gives R = Rz * Ry * Rx)
     return R.astype(np.float32)
 
 
@@ -109,6 +110,8 @@ def _apply_surface_pose(Xg: np.ndarray, Yg: np.ndarray, z_surf: float, Lx: float
     """
     Map gel-frame top-surface points (x,y,z_surf) to world frame with pose (R,t).
     Xg, Yg: (Ny,Nx). Returns (N,3) world coords.
+
+    Note: z_surf unused, all the z placement comes from t=new_surface_center (where z includes z_surf).
     """
     # local coords relative to the gel-frame center (x_c, y_c, z_surf)
     x0 = (Xg - 0.5 * Lx).ravel()
@@ -298,7 +301,8 @@ class Tac3DRenderer(SensorRenderer):
                 "renderer": self.name(), "version": self.version(), "mode": "single_panel",
                 "image_size": (img_h, img_w), "grid_shape": (Ny, Nx),
                 "spacing_mm": spacing_mm, "diameter_mm": diameter_mm,
-                "surface": {"z_mm": z_surf, "R": R.tolist(), "t": t.tolist(),
+                #"surface": {"z_mm": z_surf, "R": R.tolist(), "t": t.tolist(),
+                "surface": {"z_mm": z_surf, "R": R.tolist(), "t": new_surface_center.tolist(),
                             "tilt_deg": {"rx": rx, "ry": ry, "rz": rz}},
                 "camera": {"fx": cam.fx, "fy": cam.fy, "cx": cam.cx, "cy": cam.cy,
                            "z_cam_mm": cam.z_cam_mm, "center_mm": C.tolist()},
@@ -387,8 +391,11 @@ class Tac3DRenderer(SensorRenderer):
             "mirror": {"plane_normal": plane_n.tolist(), "plane_point_mm": plane_p.tolist(),
                        "virtual_center_mm": C_virtual.tolist()},
 
+            "baseline_mm": baseline,
+            
             "grid_shape": (Ny, Nx),
             "spacing_mm": spacing_mm, "diameter_mm": diameter_mm,
+            
             "supersample": supersample,
         }
         return FrameBundle(modalities=modalities, metadata=meta, aux={})
