@@ -47,7 +47,7 @@ def parse_args():
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True)
 
-    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "tac3d"])
+    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "tac3d", "tac3d2"])
     p.add_argument("--render-config", type=Path, required=True)
 
     p.add_argument("--n", type=int, required=True)

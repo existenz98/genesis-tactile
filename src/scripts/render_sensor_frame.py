@@ -58,12 +58,15 @@ from sensors.registry import make_sensor, list_sensors
 def _try_import(module_name: str) -> None:
     try:
         __import__(module_name)
+        print(f"[render_sensor_frame] Info: imported module '{module_name}' for sensor registration")
     except Exception:
+        print(f"[render_sensor_frame] Error: could not import module '{module_name}' for sensor registration")
         pass
 
 _try_import("sensors.particle_vts")
 _try_import("sensors.gelsight_style")
 _try_import("sensors.tac3d")
+_try_import("sensors.tac3d2")
 # ... here to add future plugin(s)
 
 
