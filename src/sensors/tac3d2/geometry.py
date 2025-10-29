@@ -10,13 +10,14 @@ import numpy as np
 # Camera frame: X right, Y down, Z forward (OpenCV convention).
 # Image axes: u right, v down.
 
-def euler_ypr_deg(yaw_deg: float, pitch_deg: float, roll_deg: float) -> np.ndarray:
+def rot_yaw_pitch_roll_deg(yaw_deg: float, pitch_deg: float, roll_deg: float) -> np.ndarray:
     """
-    Return rotation matrix R (3x3) from yaw(Z), pitch(X), roll
+    Return rotation matrix R (3x3) from yaw, pitch, roll
     defined as:
       - yaw about +Y (camera down) axis
       - pitch about +X axis
       - roll about +Z axis
+    Order: using extrinsic yaw->pitch->roll.
     This definition matches common Y-X-Z order in the OpenCV camera frame.
     """
     # Convert degrees to radians
@@ -42,31 +43,63 @@ def euler_ypr_deg(yaw_deg: float, pitch_deg: float, roll_deg: float) -> np.ndarr
                     [ sr,  cr, 0.0],
                     [0.0, 0.0, 1.0]], dtype=float)
 
-    # Intrinsic rotations: R = R_z * R_x * R_y (roll, pitch, yaw) 
-    R = R_z @ R_x @ R_y
+    ## Intrinsic rotations: R = R_z * R_x * R_y (roll, pitch, yaw) 
+    #R = R_z @ R_x @ R_y
+
+    # Extrinsic rotations: yaw->pitch->roll.
+    R = R_y @ R_x @ R_z
     return R
 
-
-def reflect_points_x_plane(points_xyz: np.ndarray, d_mm: float) -> np.ndarray:
+def world_to_camera(points_world: np.ndarray, C_w: np.ndarray, R_wc: np.ndarray) -> np.ndarray:
     """
-    Reflect 3D points across plane x = -d (mirror to the LEFT of camera).
-
-    For plane normal +X (unit), the reflection of a point is:
-      x' = -2d - x,  y' = y,  z' = z
+    Transform world points to camera coordinates.
+    R_wc: rotation from camera->world,
+    so world->camera is: R_cw = R_wc^T.
     """
-    pts = np.asarray(points_xyz, dtype=float).copy()
-    pts[:, 0] = -2.0 * d_mm - pts[:, 0]
-    return pts
+    P = np.asarray(points_world, dtype=float)
+    C = np.asarray(C_w, dtype=float).reshape(1,3)
+    R_cw = R_wc.T
+    return (R_cw @ (P - C).T).T
 
 
-def reflect_dirs_x_plane(vecs: np.ndarray) -> np.ndarray:
+def reflect_points_plane(points_xyz: np.ndarray, n: np.ndarray, p0: np.ndarray) -> np.ndarray:
     """
-    Reflect direction vectors across plane with normal +X.
-    Only the X component flips sign.
+    Reflect 3D points across a plane defined by unit normal n and point p0 (both 3,).
+    by: x' = x - 2 n (n^T (x - p0))
     """
-    v = np.asarray(vecs, dtype=float).copy()
-    v[:, 0] *= -1.0
-    return v
+    P = np.asarray(points_xyz, dtype=float)
+    n = np.asarray(n, dtype=float).reshape(1,3)
+    p0 = np.asarray(p0, dtype=float).reshape(1,3)
+    # Ensure normal is unit
+    n = n / max(1e-12, np.linalg.norm(n))
+    # vector from plane point to points
+    v = P - p0
+    dist = (v * n).sum(axis=1, keepdims=True)
+    # Reflect points across the plane using equation
+    P_ref = P - 2.0 * dist * n
+    return P_ref
+
+def reflect_dirs_plane(vecs: np.ndarray, n: np.ndarray) -> np.ndarray:
+    """
+    Reflect direction vectors across a plane with unit normal n.
+    Accepts (N,3) or (3,).
+
+    Equation:
+      v' = v - 2 n (n^T v)
+    """
+    V = np.asarray(vecs, dtype=float)
+    n = np.asarray(n, dtype=float).reshape(1,3)
+    # Ensure normal is unit
+    n = n / max(1e-12, np.linalg.norm(n))
+
+    if V.ndim == 1:
+        # s is scalar
+        s = float((V * n.reshape(-1)).sum())
+        return V - 2.0 * s * n.reshape(-1)
+    else:
+        # s is (N,1)
+        s = (V * n).sum(axis=1, keepdims=True)
+        return V - 2.0 * s * n
 
 
 def project_pinhole(points_xyz: np.ndarray, fx: float, fy: float, cx: float, cy: float):
@@ -86,7 +119,7 @@ def project_pinhole(points_xyz: np.ndarray, fx: float, fy: float, cx: float, cy:
     return uv, valid
 
 
-def jacobian_uv_wrt_panel_uv_at_point(X: float, Y: float, Z: float,
+def jacobian_uv_wrt_panel_uv_at_point_cam(X: float, Y: float, Z: float,
                                       r1: np.ndarray, r2: np.ndarray,
                                       fx: float, fy: float) -> np.ndarray:
     """

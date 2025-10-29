@@ -1,32 +1,51 @@
 camera:
   model: pinhole
   img_wh: [640, 480]
-  fx_px: 180.0        # if Z=20mm, fx~160–190 keeps both views inside 640 px
-  fy_px: 180.0
+  fx_px: 600.0
+  fy_px: 600.0
   cx_px: 320.0
   cy_px: 240.0
 
-mirror:
-  distance_mm: 5.0    # plane x = -5 mm (normal +X) → baseline B = 10 mm
+  pose:             # camera pose in gel panel (world) coords
+    x_mm:   45.0         # to the right of the panel
+    y_mm:    0.0
+    z_mm:   30.0         # higher than the panel
+    # panel's coordinate is x in panel's width direction, y in height, z normal outwards
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   -65.0
+    pitch_deg: 0.0
+    roll_deg:  0.0
 
 panel:
-  rows: 20
-  cols: 20
-  spacing_mm: 1.5
-  dot_radius_mm: 0.3
-  pose_rest:
-    center_mm: [ 10.0, 0.0, 20.0 ]   # tx=+5 mm, ty=0, tz=20 mm
-    yaw_deg: 30.0
+  rows: 20    # number of dot rows
+  cols: 20    # number of dot columns
+  spacing_mm: 2.0      # spacing between dots
+  dot_radius_mm: 0.5   # radius of each dot
+
+
+
+mirrors:                 # two mirrors.   default rotation only allow yaw
+  - name: left
+    center_mm: [ -10.0, 0.0, 35.0 ]
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   135.0
     pitch_deg: 0.0
-    roll_deg: 0.0
+    roll_deg:  0.0
+  - name: right
+    center_mm: [  15.0, 0.0, 50.0 ]
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   165.0
+    pitch_deg: 0.0
+    roll_deg:  0.0
+
 
 appearance:
   background_bgr: [60, 20, 10]
   dot_color_bgr:  [250, 250, 255]
   ellipses: true                  # foreshortening-aware ellipses; false => circles
 
-  supersample: 2        # 2 = render at 2× width height
-  blur_sigma_px: 1.0    # Gaussian σ in supersampled pixels before downscale
+  supersample: 4        # 2 = render at 2× width height
+  blur_sigma_px: 0.2    # Gaussian σ in supersampled pixels before downscale
 
 
 deformation:
