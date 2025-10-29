@@ -23,7 +23,6 @@ panel:
   dot_radius_mm: 0.5   # radius of each dot
 
 
-
 mirrors:                 # two mirrors.   default rotation only allow yaw
   - name: left
     center_mm: [ -10.0, 0.0, 35.0 ]
@@ -48,6 +47,10 @@ appearance:
   blur_sigma_px: 0.2    # Gaussian σ in supersampled pixels before downscale
 
 
+surface:
+  z_mm: 3.9      # check 'material.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.
+
 deformation:
   mode: none             # "none" | "xdmf"
   xdmf_path: data/output/u.xdmf
+

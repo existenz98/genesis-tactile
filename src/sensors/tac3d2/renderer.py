@@ -56,15 +56,6 @@ from .draw import draw_ellipses, draw_circles
 log = logging.getLogger(__name__)
 
 
-def _read_cfg(cfg: Dict[str, Any], path: Tuple[str, ...], default=None):
-    cur = cfg
-    for k in path:
-        if not isinstance(cur, dict) or k not in cur:
-            return default
-        cur = cur[k]
-    return cur
-
-
 def _load_panel_disp_grid(path: str, rows: int, cols: int) -> np.ndarray:
     """Load panel-frame displacement grid (rows x cols x 3) in mm.
     Supports .npz (look for keys: 'disp', 'panel_uv_disp_mm', 'data') or .npy.
@@ -89,38 +80,18 @@ def _load_panel_disp_grid(path: str, rows: int, cols: int) -> np.ndarray:
     return arr
 
 
-def _maybe_load_xdmf_sampler(path: Optional[str]):
+def _build_deform_field_from_cfg(def_cfg: Dict[str, Any]):
     """
-    Build a panel-frame sampler from XDMF:
-    input: uvw in panel coords (mm), output: (Δu,Δv,Δw) in panel coords (mm).
+    Create a DeformField
+    panel/world coords.
     """
-    if path is None:
-        raise ValueError("deformation.mode='xdmf' requires deformation.path (XDMF)")
-    try:
-        from synth.deform import DeformField  # type: ignore
-    except Exception as e:
-        raise ImportError("Tac3D xdmf mode requires synth.deform.DeformField to be available") from e
-    field = DeformField(mode="xdmf", xdmf_path=path)
-    field.load()
-
-    def sample_panel_disp(uvw_panel: np.ndarray):
-        """
-        Sample panel-frame displacement at given panel-frame uvw coordinates (e.g. dot centers).
-        Returns
-        - disp_panel: (N,3) float displacements in panel frame (du,dv,dw) in mm
-        - valid_mask: (N,) bool valid samples
-        """
-        for fn in ("sample_panel", "sample_uv", "sample"):
-            if hasattr(field, fn):
-                sampler = getattr(field, fn)
-                disp = sampler(uvw_panel)  # panel-frame mm, shape (N,3)
-                disp = np.asarray(disp, dtype=float)
-                valid = np.all(np.isfinite(disp), axis=1)
-                disp[~valid] = 0.0
-                return disp, valid
-        raise AttributeError("DeformField lacks a panel-coordinate sampler")
-
-    return sample_panel_disp
+    from synth.deform import DeformField  # type: ignore
+    mode = str(def_cfg.get("mode", "none")).lower()
+    xdmf_path = def_cfg.get("path", None) or def_cfg.get("xdmf_path", None)
+    field = DeformField(mode=mode, xdmf_path=xdmf_path)
+    if field.mode == "xdmf":
+        field.load()
+    return field
 
 
 @register_sensor("tac3d2")
@@ -192,31 +163,54 @@ class Tac3D2Renderer(SensorRenderer):
         cols = int(panel_cfg.get("cols", 20))
         spacing = float(panel_cfg.get("spacing_mm", 1.5))
         r_dot = float(panel_cfg.get("dot_radius_mm", 0.3))
+        # Panel physical spans
+        half_w = 0.5 * (cols - 1) * spacing    # mm
+        half_h = 0.5 * (rows - 1) * spacing    # mm
 
+        # 2D grid points (location of dot centers) in panel frame
         uv_panel, rc = make_grid_uv(GridSpec(rows=rows, cols=cols, spacing_mm=spacing, origin_center=True))
-        N = uv_panel.shape[0]
-        uvw_panel = np.concatenate([uv_panel, np.zeros((N,1), dtype=float)], axis=1)  # z=0
+        N = uv_panel.shape[0]   # number of dots
+        # 3D in world/panel frame (u,v) -> (x,y,z)
+        uvw_panel = np.concatenate([uv_panel, np.zeros((N,1), dtype=float)], axis=1)
 
         # ---- Deformation sampling (panel frame) ----
         def_cfg = cfg.get("deformation", {"mode": "none"})
         mode = str(def_cfg.get("mode", "none")).lower()
-        disp_panel = np.zeros((N,3), dtype=float)
-        disp_valid = np.ones((N,), dtype=bool)
+
+
+        grid_displacement = np.zeros((N,3), dtype=float)
+        grid_valid = np.ones((N,), dtype=bool)
 
         if mode == "xdmf":
-            path = def_cfg.get("path", None) or def_cfg.get("xdmf_path", None)
-            sample_panel_disp = _maybe_load_xdmf_sampler(path)
-            disp_panel, disp_valid = sample_panel_disp(uvw_panel)
+            # load deformation (FEM's output)
+            field = _build_deform_field_from_cfg(def_cfg)
 
-            good = np.isfinite(disp_panel).all(axis=1)
-            disp_panel[~good] = 0.0
-            disp_valid &= good
+            # --- Sample at panel grid points ---
+            # Membrane surface z (mm) in FEM
+            surf_cfg = cfg.get("surface", {})
+            z_surf_mm = float(surf_cfg.get("z_mm", 1.0))
+            # apply offset to center the panel, because in FEM the mesh coordinate is put gel's corner is at (0,0),
+            # instead of put gel's center at (0,0).
+            ox, oy, oz = half_w, half_h, z_surf_mm
+            q = uvw_panel.copy()
+            q[:, 0] += ox
+            q[:, 1] += oy
+            q[:, 2] += oz
+
+            # Query displacement, result is (N,3) in mm, same frame as mesh (panel/world)
+            disp = field.sample(q)
+            grid_displacement = np.asarray(disp, dtype=float)
+
+            # handle invalid points (rarely happens)
+            grid_valid = np.isfinite(grid_displacement).all(axis=1)
+            grid_displacement[~grid_valid] = 0.0
         elif mode == "none" or mode == "":
+            # grid_displacement as zero
             pass
         else:
             raise ValueError(f"Unsupported deformation.mode={mode}; use 'none' or 'xdmf'.")
 
-        uvw_def = uvw_panel + disp_panel  # world (panel) coords
+        uvw_def = uvw_panel + grid_displacement  # world (panel) coords
 
         # ---- Appearance & supersampling ----
         app = cfg.get("appearance", {})
@@ -308,14 +302,14 @@ class Tac3D2Renderer(SensorRenderer):
         aux: Dict[str, Any] = {
             "dot_uv_panel": uv_panel.reshape(rows, cols, 2),
             "dot_world_def": uvw_def.reshape(rows, cols, 3),
-            "disp_valid_mask": disp_valid.reshape(rows, cols),
+            "disp_valid_mask": grid_valid.reshape(rows, cols),
         }
         for name, uv_rc in all_proj.items():
             aux[f"proj_{name}"] = uv_rc
             aux[f"mask_in_fov_{name}"] = all_masks[name]
 
-        if mode in ("xdmf", "xfem"):
-            aux["panel_uv_disp_mm"] = disp_panel.reshape(rows, cols, 3)
+        if mode in ("xdmf"):
+            aux["panel_uv_disp_mm"] = grid_displacement.reshape(rows, cols, 3)
 
         return FrameBundle(modalities=modalities, metadata=meta, aux=aux)
 

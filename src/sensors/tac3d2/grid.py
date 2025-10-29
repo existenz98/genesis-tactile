@@ -22,7 +22,8 @@ def make_grid_uv(spec: GridSpec):
     Build grid of (u,v) coordinates in panel space.
 
     Return (uv_mm, idx_rc)
-    - uv_mm: (R*C, 2) array of (u, v) in mm, centered at origin if origin_center
+    - uv_mm: (R*C, 2) array of (u, v) in mm, 
+        grid is centered at (0,0) if origin_center, otherwise grid starts from (0,0)
     - idx_rc: (R*C, 2) int indices (r, c) for each entry in uv_mm
     """
 
