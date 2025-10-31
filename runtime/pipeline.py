@@ -192,6 +192,10 @@ class RuntimePipeline:
             from .sensors.stereo_markers.adapter import Tac3DAdapter as Adapter
             self.adapter = Adapter(cfg, disp, writers)
             print("[pipeline] Using Tac3DAdapter")
+        elif cfg.sensor.type in ("tac3d2"):
+            from .sensors.stereo_dots.adapter import Tac3D2Adapter as Adapter
+            self.adapter = Adapter(cfg, disp, writers)
+            print("[pipeline] Using Tac3D2Adapter")
         else:
             raise ValueError("Unknown sensor.type")
 

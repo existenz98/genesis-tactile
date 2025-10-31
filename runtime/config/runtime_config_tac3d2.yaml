@@ -1,0 +1,54 @@
+downscale: 1.0
+
+sensor:
+  type: tac3d2
+  params:
+    # --- camera intrinsics ---
+    img_wh: [640, 480]
+    fx_px: 600.0
+    fy_px: 600.0
+    cx_px: 320.0
+    cy_px: 240.0
+
+    # --- camera pose in panel/world coords (z=0 plane, +Z outwards) ---
+    cam_center_mm: [45.0, 0.0, 30.0]            # (x, y, z)
+    cam_yaw_pitch_roll_deg: [-65.0, 0.0, 0.0]   # yaw, pitch, roll (world axes)
+
+    # --- panel grid (dot lattice) ---
+    panel_rows: 20
+    panel_cols: 20
+    panel_spacing_mm: 2.0
+    dot_radius_mm: 0.5
+
+    # --- mirrors (two planes) ---
+    mirror1_center_mm: [-10.0, 0.0, 35.0]
+    mirror1_yaw_pitch_roll_deg: [135.0, 0.0, 0.0]
+
+    mirror2_center_mm: [15.0, 0.0, 50.0]
+    mirror2_yaw_pitch_roll_deg: [165.0, 0.0, 0.0]
+
+    # --- image split between the two mirror views ---
+    split_mode: half            # fixed way of spliting the image as left = mirror1, right = mirror2
+    split_seam_px: 0            # mask band around midline
+
+    # --- dot detection ---
+    detect_min_area_px: 6.0
+    detect_max_area_px: 10000.0
+    detect_min_circularity: 0.3
+
+    # --- grid matching ---
+
+    index_mode: track              # or 'track'
+
+    # robust mode parameters
+    robust_anchor_bins: 20          # default: rows
+    robust_gate_px: 12.0
+    robust_max_step_mult: 1.8
+
+    # track mode parameters
+    match_gating_px: 14.0       # prepare(): predicted vs detected
+    search_radius_px: 16.0      # process(): track from last frame
+
+    # --- 3D triangulation ---
+    triang_max_reproj_err_px: 2.0
+    triang_min_angle_deg: 0.5
