@@ -329,7 +329,8 @@ class Tac3D2Adapter(SensorAdapter):
 
         # 3. Triangulate (dots from left panel vs right panel)
         with self.prof("3) triangulate 3D"):
-            Xw_grid, mask_grid = self._triangulate(uvL, uvR)
+            #Xw_grid, mask_grid = self._triangulate(uvL, uvR)
+            Xw_grid, mask_grid = self._triangulate_fast_numpy(uvL, uvR)
 
         # Update trackers: where we had valid measurements, update prev_uv
         uvL_grid = uvL.reshape(self.rows, self.cols, 2)
@@ -486,6 +487,69 @@ class Tac3D2Adapter(SensorAdapter):
         mask_grid = mask.reshape(self.rows, self.cols)
 
         return Xw_grid, mask_grid
+
+    def _triangulate_fast_numpy(self, uvL: np.ndarray, uvR: np.ndarray):
+        """
+        Vectorized DLT triangulation for speed.
+        Assumes:
+        - P1, P2: 3x4 projection matrices (float64 or float32)
+        - R_cw: 3x3 (camera->world), t_c: (3,) camera center in world
+        """
+        P1 = np.ascontiguousarray(self.vcams[0]['P'])
+        P2 = np.ascontiguousarray(self.vcams[1]['P'])
+        R1 = self.vcams[0]['R_cw']; t1 = self.vcams[0]['t_c']
+        R2 = self.vcams[1]['R_cw']; t2 = self.vcams[1]['t_c']
+
+        N = self.rows * self.cols
+        valid = np.isfinite(uvL).all(axis=1) & np.isfinite(uvR).all(axis=1)
+        idx = np.flatnonzero(valid)
+        M = idx.size
+
+        Xw = np.full((N, 3), np.nan, dtype=P1.dtype)
+        mask = np.zeros(N, dtype=bool)
+        if M == 0:
+            return Xw.reshape(self.rows, self.cols, 3), mask.reshape(self.rows, self.cols)
+
+        u1, v1 = uvL[idx, 0], uvL[idx, 1]
+        u2, v2 = uvR[idx, 0], uvR[idx, 1]
+        p10, p11, p12 = P1[0], P1[1], P1[2]
+        p20, p21, p22 = P2[0], P2[1], P2[2]
+
+        # Build A for all points: shape (M, 4, 4)
+        A = np.empty((M, 4, 4), dtype=P1.dtype)
+        A[:, 0, :] = u1[:, None] * p12 - p10
+        A[:, 1, :] = v1[:, None] * p12 - p11
+        A[:, 2, :] = u2[:, None] * p22 - p20
+        A[:, 3, :] = v2[:, None] * p22 - p21
+
+        # Batched SVD; take last row of Vh as homogeneous X
+        _, _, Vh = np.linalg.svd(A, full_matrices=False)
+        Xh = Vh[:, -1, :]                         # (M, 4)
+        X = Xh[:, :3] / Xh[:, 3:4]                # (M, 3)
+
+        # Reprojection error, vectorized
+        Xh1 = np.concatenate([X, np.ones((M, 1), dtype=P1.dtype)], axis=1)  # (M, 4)
+        x1 = Xh1 @ P1.T                               # (M, 3)
+        x2 = Xh1 @ P2.T
+        uv1_hat = x1[:, :2] / x1[:, 2:3]
+        uv2_hat = x2[:, :2] / x2[:, 2:3]
+        e1 = np.linalg.norm(uv1_hat - uvL[idx], axis=1)
+        e2 = np.linalg.norm(uv2_hat - uvR[idx], axis=1)
+        ok_err = (e1 <= self.max_reproj_err) & (e2 <= self.max_reproj_err)
+
+        # Positive depth in both cameras
+        Rwc1 = R1.T; Rwc2 = R2.T
+        z1 = (X - t1) @ Rwc1[2]                     # row 2 is the camera z-axis in world
+        z2 = (X - t2) @ Rwc2[2]
+        ok_z = (z1 > 0) & (z2 > 0)
+
+        ok = ok_err & ok_z
+        if np.any(ok):
+            Xw[idx[ok]] = X[ok]
+            mask[idx[ok]] = True
+
+        return Xw.reshape(self.rows, self.cols, 3), mask.reshape(self.rows, self.cols)
+
     
 
     def _track_by_proximity(self, pts: np.ndarray, prev_uv_grid: np.ndarray, radius: float) -> np.ndarray:
