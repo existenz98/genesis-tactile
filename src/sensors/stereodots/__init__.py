@@ -15,7 +15,9 @@
 #   Please cite associated publications when available.
 # -----------------------------------------------------------------------------
 
-from .renderer import Tac3DRenderer
 
-__all__ = ["Tac3DRenderer"]
+
+from .renderer import StereoDotsRenderer
+
+__all__ = ["StereoDotsRenderer"]
 

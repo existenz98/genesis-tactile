@@ -24,7 +24,8 @@ Dual-Mirror style (e.g. Acorn Tac3D) synthetic renderer
 
 How to use:
 python src/scripts/render_sensor_frame.py \
-  --sensor tac3d \
+  --sensor stereodots \
+  --material src/config/material_tac3d.yaml \
   --config src/config/renderer_tac3d.yaml \
   --out data/output/tac3d_frame.png
 
@@ -94,8 +95,8 @@ def _build_deform_field_from_cfg(def_cfg: Dict[str, Any]):
     return field
 
 
-@register_sensor("tac3d2")
-class Tac3D2Renderer(SensorRenderer):
+@register_sensor("stereodots")
+class StereoDotsRenderer(SensorRenderer):
     """Dual Mirror Stereo dot-grid renderer.
 
     World/panel frame: gel plane z=0, normal +Z; dots on z=0.
@@ -107,7 +108,7 @@ class Tac3D2Renderer(SensorRenderer):
     """
 
     def name(self) -> str:
-        return "tac3d2"
+        return "stereodots"
 
     def version(self) -> str:
         return "0.2.0"

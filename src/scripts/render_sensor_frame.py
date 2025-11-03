@@ -65,8 +65,7 @@ def _try_import(module_name: str) -> None:
 
 _try_import("sensors.particle_vts")
 _try_import("sensors.gelsight_style")
-_try_import("sensors.tac3d")
-_try_import("sensors.tac3d2")
+_try_import("sensors.stereodots")
 # ... here to add future plugin(s)
 
 

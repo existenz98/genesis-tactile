@@ -63,6 +63,9 @@ outdir/
 
 Generate gelsight style or tac3d style sequences by changing --sensor and --render-config.
 e.g.
+
+gelsight style:
+
 python src/dataset/gen_trajectory.py \
   --outdir dataset/sequences/000001 \
   --material src/config/material.yaml \
@@ -71,6 +74,18 @@ python src/dataset/gen_trajectory.py \
   --spec src/config/trajectories/press_slide_lift.yaml \
   --save_flow \
   --write_video
+
+  
+tac3d style:
+
+python src/dataset/gen_trajectory.py \
+  --outdir dataset/sequences/tac3d_press_slide_lift  \
+  --material src/config/material_tac3d.yaml \
+  --sensor stereodots  \
+  --render-config src/config/renderer_tac3d.yaml  \
+  --spec src/config/trajectories/press_slide_lift.yaml \
+  --write_video
+
 
 """
 
@@ -99,7 +114,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", type=Path, required=True, help="Output sequence directory.")
     p.add_argument("--material", type=Path, required=True, help="YAML for FEM (forward).")
-    p.add_argument("--sensor", type=str, default="particle_vts", choices=["particle_vts", "gelsight_style", "tac3d", "tac3d2"], help="Registered sensor name (default: particle_vts).")
+    p.add_argument("--sensor", type=str, default="particle_vts", choices=["particle_vts", "gelsight_style", "stereodots"], help="Registered sensor name (default: particle_vts).")
     p.add_argument("--render-config", type=Path, required=True, help="YAML for sensor renderer.")
     p.add_argument("--spec", type=Path, required=True, help="Keyframe specification YAML.")
     p.add_argument("--save_flow", action="store_true", help="Compute optical flow (current frame vs original I0).")

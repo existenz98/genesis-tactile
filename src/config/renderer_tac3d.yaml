@@ -1,36 +1,56 @@
 camera:
   model: pinhole
   img_wh: [640, 480]
-  z_ref_mm: 20.0
-  z_cam_mm: 20.0
+  fx_px: 600.0
+  fy_px: 600.0
+  cx_px: 320.0
+  cy_px: 240.0
 
-# Visible area in mm (mapped to full image at z_ref_mm)
-view_mm: [40.0, 30.0]
+  pose:             # camera pose in gel panel (world) coords
+    x_mm:   45.0         # to the right of the panel
+    y_mm:    0.0
+    z_mm:   30.0         # higher than the panel
+    # panel's coordinate is x in panel's width direction, y in height, z normal outwards
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   -65.0
+    pitch_deg: 0.0
+    roll_deg:  0.0
+
+panel:
+  rows: 20    # number of dot rows
+  cols: 20    # number of dot columns
+  spacing_mm: 2.0      # spacing between dots
+  dot_radius_mm: 0.5   # radius of each dot
+
+
+mirrors:                 # two mirrors.   default rotation only allow yaw
+  - name: left
+    center_mm: [ -10.0, 0.0, 35.0 ]
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   135.0
+    pitch_deg: 0.0
+    roll_deg:  0.0
+  - name: right
+    center_mm: [  15.0, 0.0, 50.0 ]
+    # yaw about +Y, then pitch about +X, then roll about +Z (all in world axes).
+    yaw_deg:   165.0
+    pitch_deg: 0.0
+    roll_deg:  0.0
+
+
+appearance:
+  background_bgr: [60, 20, 10]
+  dot_color_bgr:  [250, 250, 255]
+  ellipses: true                  # foreshortening-aware ellipses; false => circles
+
+  supersample: 4        # 2 = render at 2× width height
+  blur_sigma_px: 0.2    # Gaussian σ in supersampled pixels before downscale
+
 
 surface:
-  z_mm: 3.9    # reflective dot plane height (top surface of gel)
-  translation_mm: [-10.0, 0.0, 0.0]   # Move surface 10 mm to the left along the X axis
-  tilt:               # set to zero for no tilt
-    rx_deg: 0.0       # rotation about world/camera X (x right)
-    ry_deg: 30.0      # rotation about world/camera Y (y down)
-    rz_deg: 0.0       # in-plane rotation about Z (z up)
-
-mirror:
-  enabled: true         # set true to enable mirror-based stereo
-  plane_normal: [-1.0, 0.0, 0.0]          # vertical plane, normal along -X
-  plane_point_mm: [17.0, 15.0, 0.0]       # mirror plane located left of camera center (camera at X=20, because view_mm[0]=40)
-
-# Background and dot appearance
-background_bgr: [60, 20, 20]    # dark bluish
-dots:
-  spacing_mm: 2.23               # grid spacing
-  diameter_mm: 1.0              # physical printed dot diameter
-  margin_mm: 0.8                # keepout from the viewbox edges
-  color_bgr: [255, 230, 230]    # bright slightly bluish white
+  z_mm: 3.9      # check 'material.yaml' which describes the gel material.  it is 4mm thick, 4mm is the surface been touched.
 
 deformation:
-  mode: none                    # "none" | "xdmf"
+  mode: none             # "none" | "xdmf"
   xdmf_path: data/output/u.xdmf
 
-# Optional oversampling for smoother circles (draw at x2 and downsample)
-supersample: 2
