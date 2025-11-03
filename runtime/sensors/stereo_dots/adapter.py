@@ -52,7 +52,11 @@ from .geom import (
     reproj_error, z_cam_sign
 )
 from .detect import detect_bright_blobs
-from .index import match_to_predictions, robust_index_half, assign_grid_to_predictions
+from .index import match_to_predictions, index_grid_from_points
+
+from ...output.visualizer import flow_to_color_bgr, draw_quiver_bgr
+
+from ...utils.prof import Prof
 
 
 class Tac3D2Adapter(SensorAdapter):
@@ -72,7 +76,10 @@ class Tac3D2Adapter(SensorAdapter):
 
     def __init__(self, cfg, dbg_disp=None, dbg_writers=None):
         super().__init__(cfg, dbg_disp, dbg_writers)
-        self.params: Dict[str, Any] = dict(getattr(cfg.sensor, 'params', {}) or {})
+
+
+        # profiler
+        self.prof = Prof(enable=True, report_every=5)
 
         # sensor params
         self.params: Dict[str, Any] = dict(getattr(cfg.sensor, 'params', {}) or {})
@@ -133,9 +140,12 @@ class Tac3D2Adapter(SensorAdapter):
 
         # Indexing mode: 'track' (default) or 'robust'
         self.index_mode = str(P.get('index_mode', 'track')).lower()
-        self.robust_anchor_bins = int(P.get('robust_anchor_bins', self.rows))
-        self.robust_gate_px = float(P.get('robust_gate_px', 12.0))
-        self.robust_max_step_mult = float(P.get('robust_max_step_mult', 1.8))
+
+        # robust hyperparams
+        self.robust_k_nn = int(P.get('robust_k_nn', 4))
+        self.robust_angle_bins = int(P.get('robust_angle_bins', 90))
+        self.robust_angle_tol_deg = float(P.get('robust_angle_tol_deg', 35.0))
+        self.robust_max_len_mult = float(P.get('robust_max_len_mult', 3.0))
 
         # State
         self.vcams = []                      # list of dict per mirror: {P, R_cw, t_c, name}
@@ -202,6 +212,23 @@ class Tac3D2Adapter(SensorAdapter):
         ptsL[:,0] += 0.0
         ptsR[:,0] += (mid + max(0, int(self.seam_px)))
         return ptsL, ptsR
+    
+    def _uv_from_pt_of_rc(self, pts: np.ndarray, pt_of_rc: np.ndarray) -> np.ndarray:
+        """
+        Convert pt_of_rc to per-cell UV grid.
+        pts: (N,2) detections (full-image coords). pt_of_rc: (R,C) int indices (or -1).
+        Returns uv_grid: (R,C,2) with NaNs where missing.
+        """
+        uv_grid = np.full((self.rows, self.cols, 2), np.nan, dtype=float)
+        for r in range(self.rows):
+            for c in range(self.cols):
+                k = int(pt_of_rc[r, c])
+                if k >= 0:
+                    uv_grid[r, c] = pts[k]
+        return uv_grid
+
+
+    # ---------- main methods ----------
 
     def prepare(self, first_bgr: np.ndarray) -> None:
         self.frame_id = 0
@@ -220,7 +247,7 @@ class Tac3D2Adapter(SensorAdapter):
 
         #--- Detect blobs in the first frame ---
         gray = cv2.cvtColor(first_bgr, cv2.COLOR_BGR2GRAY)
-        ptsL, ptsR = self._detect_halves(gray)
+        ptsL, ptsR = self._detect_halves(gray)      # shape of (n,2), u,v pixel coords
 
         #--- Indexing dots ---
         N = self.rows * self.cols
@@ -228,21 +255,10 @@ class Tac3D2Adapter(SensorAdapter):
         uvR = np.full((N, 2), np.nan, dtype=float)
 
         if self.index_mode == "robust":
-            # Robust, tracking-free indexing on each half
-            gridL, maskL = robust_index_half(
-                ptsL, self.rows, self.cols, side="left",
-                anchor_bins=self.robust_anchor_bins,
-                gate_px=self.robust_gate_px,
-                max_step_mult=self.robust_max_step_mult,
-            )
-            gridR, maskR = robust_index_half(
-                ptsR, self.rows, self.cols, side="right",
-                anchor_bins=self.robust_anchor_bins,
-                gate_px=self.robust_gate_px,
-                max_step_mult=self.robust_max_step_mult,
-            )
-            uvL = assign_grid_to_predictions(gridL, maskL, uvL_pred, self.match_gate_px)
-            uvR = assign_grid_to_predictions(gridR, maskR, uvR_pred, self.match_gate_px)
+            uvL_grid, maskL = index_grid_from_points(ptsL, self.rows, self.cols, anchor="top-right")    # grid is (rows,cols,2)
+            uvR_grid, maskR = index_grid_from_points(ptsR, self.rows, self.cols, anchor="top-left")
+            uvL = uvL_grid.reshape(N, 2)    # convert from (rows,cols,2) to (N,2)
+            uvR = uvR_grid.reshape(N, 2)
         else:
             # prediction-to-detection matching
             _, idx_pt_for_pred_L = match_to_predictions(ptsL, uvL_pred, self.match_gate_px)
@@ -282,6 +298,14 @@ class Tac3D2Adapter(SensorAdapter):
         }
         print(f"[Tac3DAdapter] prepare(): rest valid dots = {int(mask.sum())}/{N}")
 
+        #--- Debug display ---
+        if self.cfg.display.enable and self.cfg.display.show_seg_color:
+            uvL_grid = self.prev_uv[self.vcams[0]['name']]
+            uvR_grid = self.prev_uv[self.vcams[1]['name']]
+            mask_grid = self.valid_mask
+            # draw over the original first frame for context
+            self._draw_index_overlay(first_bgr, uvL_grid, mask_grid, tag="index left rest")
+            self._draw_index_overlay(first_bgr, uvR_grid, mask_grid, tag="index right rest")
 
     def process(self, bgr: np.ndarray) -> Optional[Deformation]:
         """
@@ -295,71 +319,22 @@ class Tac3D2Adapter(SensorAdapter):
             return None
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
-        # Detect
-        ptsL, ptsR = self._detect_halves(gray)
+        # 1. Detect
+        with self.prof("1) detect halves"):
+            ptsL, ptsR = self._detect_halves(gray)
 
-        # Indexing
-        name1, name2 = self.vcams[0]['name'], self.vcams[1]['name']
-        if self.index_mode == "robust":
-            # Per-frame robust indexing (no tracking)
-            uvL_pred = self.pred_uv[name1]
-            uvR_pred = self.pred_uv[name2]
-            gridL, maskL = robust_index_half(
-                ptsL, self.rows, self.cols, side="left",
-                anchor_bins=self.robust_anchor_bins,
-                gate_px=self.robust_gate_px,
-                max_step_mult=self.robust_max_step_mult,
-            )
-            gridR, maskR = robust_index_half(
-                ptsR, self.rows, self.cols, side="right",
-                anchor_bins=self.robust_anchor_bins,
-                gate_px=self.robust_gate_px,
-                max_step_mult=self.robust_max_step_mult,
-            )
-            uvL = assign_grid_to_predictions(gridL, maskL, uvL_pred, self.match_gate_px)
-            uvR = assign_grid_to_predictions(gridR, maskR, uvR_pred, self.match_gate_px)
-            # For continuity of debug/state, update prev_uv with what we measured
-            self.prev_uv[name1] = np.where(
-                np.isfinite(uvL.reshape(self.rows, self.cols, 2)[..., 0])[..., None],
-                uvL.reshape(self.rows, self.cols, 2),
-                self.prev_uv[name1]
-            )
-            self.prev_uv[name2] = np.where(
-                np.isfinite(uvR.reshape(self.rows, self.cols, 2)[..., 0])[..., None],
-                uvR.reshape(self.rows, self.cols, 2),
-                self.prev_uv[name2]
-            )
-        else:
-            # Tracking from last frame
-            uvL = self._track_by_proximity(ptsL, self.prev_uv[name1], self.track_radius_px)
-            uvR = self._track_by_proximity(ptsR, self.prev_uv[name2], self.track_radius_px)
+        # 2. Indexing
+        with self.prof("2) index dots"):
+            uvL, uvR = self._build_index(ptsL, ptsR)
 
-
-        # Triangulate current frame
-        P1 = self.vcams[0]['P']; P2 = self.vcams[1]['P']
-        R1 = self.vcams[0]['R_cw']; t1 = self.vcams[0]['t_c']
-        R2 = self.vcams[1]['R_cw']; t2 = self.vcams[1]['t_c']
-
-        N = self.rows*self.cols
-        Xw = np.full((N,3), np.nan, dtype=float)
-        mask = np.zeros((N,), dtype=bool)
-        for j in range(N):
-            if not np.isfinite(uvL[j,0]) or not np.isfinite(uvR[j,0]):
-                continue
-            X = triangulate_linear(P1, P2, uvL[j], uvR[j])
-            e1 = reproj_error(P1, X, uvL[j]); e2 = reproj_error(P2, X, uvR[j])
-            if e1 > self.max_reproj_err or e2 > self.max_reproj_err:
-                continue
-            if z_cam_sign(R1, t1, X) <= 0 or z_cam_sign(R2, t2, X) <= 0:
-                continue
-            Xw[j] = X; mask[j] = True
-
-        Xw_grid = Xw.reshape(self.rows, self.cols, 3)
-        mask_grid = mask.reshape(self.rows, self.cols)
+        # 3. Triangulate (dots from left panel vs right panel)
+        with self.prof("3) triangulate 3D"):
+            Xw_grid, mask_grid = self._triangulate(uvL, uvR)
 
         # Update trackers: where we had valid measurements, update prev_uv
         uvL_grid = uvL.reshape(self.rows, self.cols, 2)
         uvR_grid = uvR.reshape(self.rows, self.cols, 2)
+        name1, name2 = self.vcams[0]['name'], self.vcams[1]['name']
         for nm, grid in ((name1, uvL_grid), (name2, uvR_grid)):
             prev = self.prev_uv[nm]
             upd = np.where(np.isfinite(grid[...,0])[...,None], grid, prev)
@@ -424,9 +399,94 @@ class Tac3D2Adapter(SensorAdapter):
             z_of_layer=None,
         )
 
+        # --- Debug display ---
+        if self.cfg.display.enable:
+            H_img, W_img = gray.shape[:2]
+            sx, sy = self._virtual_scales_fit_image(W_img, H_img)   # isotropic; sx==sy
+            s = sx
+            # build coarse (rows x cols) pixel flows (vx,vy) in the panel view
+            vx_coarse = np.zeros((self.rows, self.cols), dtype=np.float32)
+            vy_coarse = np.zeros((self.rows, self.cols), dtype=np.float32)
+            vx_coarse[valid_3d] = (disp_3d[..., 0][valid_3d] * s).astype(np.float32)  # du_mm -> px
+            vy_coarse[valid_3d] = (disp_3d[..., 1][valid_3d] * s).astype(np.float32)  # dv_mm -> px
+
+        # Draw indexing overlays
+        if self.cfg.display.enable and self.cfg.display.show_seg_color:
+            self._draw_index_overlay(bgr, uvL_grid, mask_grid, tag="index left")
+            self._draw_index_overlay(bgr, uvR_grid, mask_grid, tag="index right")
+        # Draw sparse arrows on dot grid
+        if self.cfg.display.enable and self.cfg.display.show_flow_quiver_raw:
+            self._draw_sparse_panel_arrows(H_img, W_img, vx_coarse, vy_coarse, valid_3d, tag="dot displacement")
+
+        self.prof.tick()
+
         return deform_2d
 
     # ---------- internal methods ----------
+
+    def _build_index(self, ptsL: np.ndarray, ptsR: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Build per-half (N,2) uv arrays by indexing/tracking detected pts.
+        Uses either robust indexing or tracking from last frame.
+        """
+        name1, name2 = self.vcams[0]['name'], self.vcams[1]['name']
+        if self.index_mode == "robust":
+            N = self.rows * self.cols
+            # Stateless single-frame indexing on each half
+            uvL_grid, maskL = index_grid_from_points(ptsL, self.rows, self.cols, anchor="top-right")    # grid is (rows,cols,2)
+            uvR_grid, maskR = index_grid_from_points(ptsR, self.rows, self.cols, anchor="top-left")
+
+            uvL = uvL_grid.reshape(N, 2)    # convert from (rows,cols,2) to (N,2)
+            uvR = uvR_grid.reshape(N, 2)
+            # Update prev_uv for visualization continuity
+            self.prev_uv[name1] = np.where(
+                np.isfinite(uvL.reshape(self.rows, self.cols, 2)[..., 0])[..., None],
+                uvL.reshape(self.rows, self.cols, 2),
+                self.prev_uv[name1]
+            )
+            self.prev_uv[name2] = np.where(
+                np.isfinite(uvR.reshape(self.rows, self.cols, 2)[..., 0])[..., None],
+                uvR.reshape(self.rows, self.cols, 2),
+                self.prev_uv[name2]
+            )
+        else:
+            # Tracking from last frame
+            uvL = self._track_by_proximity(ptsL, self.prev_uv[name1], self.track_radius_px)
+            uvR = self._track_by_proximity(ptsR, self.prev_uv[name2], self.track_radius_px)
+
+        return uvL, uvR
+
+    def _triangulate(self, uvL: np.ndarray, uvR: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Triangulate 3D points from left/right pixel locations.
+        uvL, uvR: (N,2) pixel locations for each dot (NaN if missing)
+        Returns:
+            Xw_grid: (rows,cols,3) 3D points in panel/world frame (NaN if missing)
+            mask_grid: (rows,cols) bool valid mask
+        """
+        P1 = self.vcams[0]['P']; P2 = self.vcams[1]['P']
+        R1 = self.vcams[0]['R_cw']; t1 = self.vcams[0]['t_c']
+        R2 = self.vcams[1]['R_cw']; t2 = self.vcams[1]['t_c']
+
+        N = self.rows*self.cols
+        Xw = np.full((N,3), np.nan, dtype=float)
+        mask = np.zeros((N,), dtype=bool)
+        for j in range(N):
+            if not np.isfinite(uvL[j,0]) or not np.isfinite(uvR[j,0]):
+                continue
+            X = triangulate_linear(P1, P2, uvL[j], uvR[j])
+            e1 = reproj_error(P1, X, uvL[j]); e2 = reproj_error(P2, X, uvR[j])
+            if e1 > self.max_reproj_err or e2 > self.max_reproj_err:
+                continue
+            if z_cam_sign(R1, t1, X) <= 0 or z_cam_sign(R2, t2, X) <= 0:
+                continue
+            Xw[j] = X; mask[j] = True
+
+        Xw_grid = Xw.reshape(self.rows, self.cols, 3)
+        mask_grid = mask.reshape(self.rows, self.cols)
+
+        return Xw_grid, mask_grid
+    
 
     def _track_by_proximity(self, pts: np.ndarray, prev_uv_grid: np.ndarray, radius: float) -> np.ndarray:
         """
@@ -453,13 +513,14 @@ class Tac3D2Adapter(SensorAdapter):
         """
         Compute virtual camera's mm->px scales so that the panel grid tightly fits the image.
         sx = (W_img-1) / panel_width_mm,  sy = (H_img-1) / panel_height_mm
-        and find max to keep full panel in view.
+        keep full panel in view and keep aspect ratio by choosing min scale.
         """
         width_mm  = max(1e-9, (self.cols - 1) * self.spacing_mm)
         height_mm = max(1e-9, (self.rows - 1) * self.spacing_mm)
         sx = (W_img - 1) / width_mm
         sy = (H_img - 1) / height_mm
-        scale = max(sx, sy)
+        # keep aspect ratio
+        scale = min(sx, sy)
         return float(scale), float(scale)
 
     def _dot_dis_to_pixel_disp(self, H_img: int, W_img: int, disp_3d: np.ndarray, valid_3d):
@@ -470,31 +531,146 @@ class Tac3D2Adapter(SensorAdapter):
         panel (u,v) in mm -> image pixels with auto-inferred scales so the panel fits the image.
         """
 
+        # 1. Compute virtual camera's mm->px scales
         sx, sy = self._virtual_scales_fit_image(W_img, H_img)   # mm -> px
 
-        # Coarse (rows x cols) flow at dot lattice positions (defined at REST indices)
-        # Note: image coords are x-right, y-down. We choose vy = +dv*sy, vx = +du*sx.
+        # 2.Coarse (rows x cols) 2D displacement (at dot lattice positions defined at REST indices)
         vx_coarse = np.zeros((self.rows, self.cols), dtype=np.float32)
         vy_coarse = np.zeros((self.rows, self.cols), dtype=np.float32)
         w_coarse  = valid_3d.astype(np.float32)   # weights (1 for valid dots, 0 for missing)
 
-        # disp[...,0]=Δu_mm, disp[...,1]=Δv_mm (panel/world mm)
+        # scale 3D displacement, disp[...,0]=du_mm, disp[...,1]=dv_mm (panel/world mm) to 2D pixel displacement
         vx_coarse[valid_3d] = (disp_3d[..., 0][valid_3d] * sx).astype(np.float32)
         vy_coarse[valid_3d] = (disp_3d[..., 1][valid_3d] * sy).astype(np.float32)
 
-        # Upscale the sparse lattice to full resolution using mask-weighted resize.
-        # We upsample both the flow and the weight, then normalize: F_up / (W_up + eps).
-        vx_up = cv2.resize(vx_coarse, (W_img, H_img), interpolation=cv2.INTER_CUBIC)
-        vy_up = cv2.resize(vy_coarse, (W_img, H_img), interpolation=cv2.INTER_CUBIC)
-        w_up  = cv2.resize(w_coarse,  (W_img, H_img), interpolation=cv2.INTER_LINEAR)
+        # Note: image coords are x-right, y-down. We choose vy = +dv*sy, vx = +du*sx.
+        vy_coarse = -vy_coarse   # because panel v is y-down but camera image y is down
 
-        eps = 1e-6
-        vx_dense = vx_up / (w_up + eps)
-        vy_dense = vy_up / (w_up + eps)
+        # 3. Upscale the sparse lattice to full resolution using mask-weighted resize.
 
-        # Where the upsampled weight is near zero (no support), set zeros and mark invalid.
-        valid2d = (w_up > 0.01).astype(np.uint8)
-        vx_dense = np.where(valid2d.astype(bool), vx_dense, 0.0).astype(np.float32)
-        vy_dense = np.where(valid2d.astype(bool), vy_dense, 0.0).astype(np.float32)
+        # 1) compute square-preserving panel rect in the image
+        width_mm  = max(1e-9, (self.cols - 1) * self.spacing_mm)
+        height_mm = max(1e-9, (self.rows - 1) * self.spacing_mm)
+        # sx == sy == scale (isotropic) from _virtual_scales_fit_image
+        s = sx  # since _virtual_scales_fit_image returns (scale, scale)
+
+        W_panel = max(1, int(round(s * width_mm)))
+        H_panel = max(1, int(round(s * height_mm)))
+        # center the panel rectangle (letterbox/pillarbox as needed)
+        u0 = (W_img - W_panel) // 2
+        v0 = (H_img - H_panel) // 2
+
+        # 2) upsample only to the panel rect, keep aspect ratio
+        vx_panel = cv2.resize(vx_coarse, (W_panel, H_panel), interpolation=cv2.INTER_CUBIC)
+        vy_panel = cv2.resize(vy_coarse, (W_panel, H_panel), interpolation=cv2.INTER_CUBIC)
+
+        # validity: keep it binary (0/1). Use nearest so we don't create fractional weights.
+        w_panel = cv2.resize(w_coarse, (W_panel, H_panel), interpolation=cv2.INTER_NEAREST)
+        mask_panel = (w_panel > 0.5).astype(np.uint8)
+
+        # 3) paste into full-size images; zeros outside the panel rect
+        vx_dense = np.zeros((H_img, W_img), dtype=np.float32)
+        vy_dense = np.zeros((H_img, W_img), dtype=np.float32)
+        valid2d  = np.zeros((H_img, W_img), dtype=np.uint8)
+
+        vx_dense[v0:v0+H_panel, u0:u0+W_panel] = vx_panel
+        vy_dense[v0:v0+H_panel, u0:u0+W_panel] = vy_panel
+        valid2d [v0:v0+H_panel, u0:u0+W_panel] = mask_panel
+
+        # 4) force zero displacement in panel pixels with bad validity
+        vx_dense[v0:v0+H_panel, u0:u0+W_panel] *= mask_panel
+        vy_dense[v0:v0+H_panel, u0:u0+W_panel] *= mask_panel
 
         return vx_dense, vy_dense, valid2d
+
+    # ------ Debug display ------
+    def _panel_rect_from_scale(self, W_img: int, H_img: int, scale: float) -> tuple[int, int, int, int]:
+        """
+        Compute letterboxed panel rectangle (u0, v0, W_panel, H_panel).
+        """
+        width_mm  = max(1e-9, (self.cols - 1) * self.spacing_mm)
+        height_mm = max(1e-9, (self.rows - 1) * self.spacing_mm)
+        W_panel = max(1, int(round(scale * width_mm)))
+        H_panel = max(1, int(round(scale * height_mm)))
+        u0 = (W_img - W_panel) // 2
+        v0 = (H_img - H_panel) // 2
+        return u0, v0, W_panel, H_panel
+
+    def _draw_index_overlay(self, base_bgr: np.ndarray, uv_grid: np.ndarray, mask_grid: np.ndarray, tag: str, scale: float = 4.0) -> None:
+        """
+        Draw per-dot indices (r,c) over an image for quick visual validation.
+        Colors encode row; text shows "r,c".
+        """
+        if not self.cfg.display.enable or not getattr(self.cfg.display, "show_seg_color", False):
+            return
+
+        H, W = base_bgr.shape[:2]
+        vis = base_bgr.copy()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        # scale
+        H, W = base_bgr.shape[:2]
+        s = max(1.0, scale)  # keep >=1 for readability
+
+        # scale the background FIRST
+        Wd, Hd = int(round(W * s)), int(round(H * s))
+        vis = cv2.resize(base_bgr, (Wd, Hd), interpolation=cv2.INTER_LINEAR)
+
+        # scale-aware drawing params
+        r_px = max(1, int(round(2 * s)))                 # dot radius
+        thk  = max(1, int(round(1 * s)))                 # thickness
+        fsc  = 0.5                                       # font scale
+        txt_thk = 1
+        txt_off = max(3, int(round(3 * s)))              # small offset for label
+
+        # simple row color ramp
+        for r in range(self.rows):
+            color = (int(255 * r / max(1, self.rows - 1)), 50, 255 - int(255 * r / max(1, self.rows - 1)))
+            for c in range(self.cols):
+                if not mask_grid[r, c]:
+                    continue
+                u, v = uv_grid[r, c]
+                if not np.isfinite(u) or not np.isfinite(v):
+                    continue
+                # scale coordinates after background was scaled
+                p = (int(round(u * s)), int(round(v * s)))
+                cv2.circle(vis, p, r_px, color, -1, lineType=cv2.LINE_AA)
+                cv2.putText(vis, f"{r},{c}",
+                            (p[0] + txt_off, p[1] - txt_off),
+                            font, fsc, (255, 255, 255), txt_thk, cv2.LINE_AA)
+        self.dbg_disp.show(tag, vis)
+
+    def _draw_sparse_panel_arrows(self, H_img: int, W_img: int,
+                                  vx_coarse: np.ndarray, vy_coarse: np.ndarray,
+                                  valid: np.ndarray, tag: str, scale: float = 3.0) -> None:
+        """
+        Draw sparse arrows at panel lattice locations on a blank image of size (H_img, W_img).
+        """
+        if not self.cfg.display.enable or not getattr(self.cfg.display, "show_flow_quiver_raw", False):
+            return
+
+        s, _ = self._virtual_scales_fit_image(W_img, H_img)
+        u0, v0, Wp, Hp = self._panel_rect_from_scale(W_img, H_img, s)
+        vis = np.zeros((H_img, W_img, 3), dtype=np.uint8)
+
+        # lattice pixel centers within panel rect
+        if self.cols > 1:
+            u_frac = np.linspace(0.0, 1.0, self.cols)
+        else:
+            u_frac = np.array([0.5], dtype=float)
+        if self.rows > 1:
+            v_frac = np.linspace(0.0, 1.0, self.rows)
+        else:
+            v_frac = np.array([0.5], dtype=float)
+        for r in range(self.rows):
+            v = int(round(v0 + v_frac[r] * Hp))
+            for c in range(self.cols):
+                if not valid[r, c]:
+                    continue
+                u = int(round(u0 + u_frac[c] * Wp))
+                du = float(vx_coarse[r, c]) * scale
+                dv = float(vy_coarse[r, c]) * scale
+                p0 = (u, v)
+                p1 = (int(round(u + du)), int(round(v + dv)))
+                cv2.arrowedLine(vis, p0, p1, (0, 255, 255), 1, tipLength=0.25)
+        self.dbg_disp.show(tag, vis)

@@ -32,8 +32,12 @@ Indexing utilities for grid of dots
 """
 
 from __future__ import annotations
+import math
 import numpy as np
-from typing import Tuple, Optional
+from typing import Any, Dict, Tuple, Optional
+
+
+#----- Tracking based -----
 
 def match_to_predictions(pts: np.ndarray, preds: np.ndarray, gate_px: float) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -77,170 +81,242 @@ def match_to_predictions(pts: np.ndarray, preds: np.ndarray, gate_px: float) -> 
     return idx_pred_for_pt, idx_pt_for_pred
 
 
+#----- Robust single-frame indexing based on directional cones -----
 
-def _fit_anchor_column(pts: np.ndarray,
-                       rows: int,
-                       side: str,
-                       anchor_bins: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+
+def index_grid_from_points(
+    pts, cols, rows,
+    cone_half_angle_deg=40.0,
+    par_window=(0.5, 1.8),
+    perp_max=0.35,
+    lambda_perp=0.7,
+    anchor="top-left",   # NEW: choose one of {"top-left","top-right","bottom-left","bottom-right"}
+):
     """
-    Build an 'anchor column' as a smooth curve:
-      - bin points along v (image row) direction
-      - per bin choose extreme-u point: left view -> max u, right view -> min u
-      - smooth by low-degree polyfit u(v)
-      - resample to exactly rows anchor points at uniformly spaced v
-    Returns (anchor_rc[rows,2], mask[rows]) in pixel coords.
+    Parameters
+    ----------
+    pts : (N,2) array-like
+        Detected point (u,v) pixel coordinates. OpenCV convention (u=x right, v=y down).
+    cols, rows : int
+        Expected grid dimensions. Some cells may be missing.
+    cone_half_angle_deg : float
+        Half-angle of directional cones around +x, -x, +y, -y in degrees (in normalized space).
+    par_window : (float, float)
+        Allowed parallel step range in normalized units.
+    perp_max : float
+        Allowed perpendicular deviation in normalized units.
+    lambda_perp : float
+        Weight for perpendicular deviation in neighbor selection cost.
+    anchor : str
+        Anchoring of indices to a particular image corner:
+        "top-left" (default) | "top-right" | "bottom-left" | "bottom-right".
+
+    Returns
+    -------
+    grid : (rows, cols, 2) float64
+        u,v pixel coords per (row, col). Missing cells are np.nan.
+    mask : (rows, cols) bool
+        True where a detection was assigned to (row, col).
     """
-    if pts.size == 0:
-        return np.full((rows, 2), np.nan, float), np.zeros((rows,), bool)
+    if pts is None or len(pts) == 0:
+        grid = np.full((rows, cols, 2), np.nan, dtype=float)
+        mask = np.zeros((rows, cols), dtype=bool)
+        return grid, mask
 
-    vmin, vmax = np.min(pts[:, 1]), np.max(pts[:, 1])
-    B = int(anchor_bins or rows)
-    edges = np.linspace(vmin, vmax + 1e-9, B + 1)
-    picks = []
-    for b in range(B):
-        sel = (pts[:, 1] >= edges[b]) & (pts[:, 1] < edges[b+1])
-        if not np.any(sel):
-            continue
-        subset = pts[sel]
-        k = np.argmax(subset[:, 0]) if side == "left" else np.argmin(subset[:, 0])
-        picks.append(subset[k])
-    if len(picks) < 2:
-        return np.full((rows, 2), np.nan, float), np.zeros((rows,), bool)
-    picks = np.array(sorted(picks, key=lambda p: p[1]), dtype=float)  # sort by v
-    deg = int(min(3, len(picks) - 1))
-    coef = np.polyfit(picks[:, 1], picks[:, 0], deg=deg)  # u(v)
-    v_targets = np.linspace(picks[0, 1], picks[-1, 1], rows)
-    u_smooth = np.polyval(coef, v_targets)
-    anchor = np.stack([u_smooth, v_targets], axis=1)
-    # valid where inside original v-range by small margin
-    mask = (v_targets >= vmin) & (v_targets <= vmax)
-    return anchor, mask
+    pts = np.asarray(pts, dtype=float)
+    x = pts[:, 0]  # u
+    y = pts[:, 1]  # v
+    N = pts.shape[0]
 
+    # -----------------------------
+    # 0) Robust global step sizes s_x, s_y (normalization)
+    # -----------------------------
+    dx = x[None, :] - x[:, None]
+    dy = y[None, :] - y[:, None]
+    np.fill_diagonal(dx, np.nan)
+    np.fill_diagonal(dy, np.nan)
 
-def _estimate_step_and_normals(anchor: np.ndarray, pts: np.ndarray, side: str) -> Tuple[np.ndarray, float]:
-    """
-    From the anchor curve (rows x 2), compute per-row inward normals and a
-    robust inter-column step size (in pixels near the anchor).
-    """
-    R = anchor.shape[0]
-    # tangent via central differences in (u,v) pixel space
-    T = np.zeros_like(anchor)
-    T[1:-1] = anchor[2:] - anchor[:-2]
-    T[0] = anchor[1] - anchor[0]
-    T[-1] = anchor[-1] - anchor[-2]
-    # normal (rotate tangent by +90°)
-    N = np.empty_like(T)
-    N[:, 0] = -T[:, 1]
-    N[:, 1] = T[:, 0]
-    # normalize
-    nrm = np.linalg.norm(N, axis=1, keepdims=True)
-    nrm = np.where(nrm > 1e-9, nrm, 1.0)
-    N = N / nrm
-    # Ensure normals point inward: left view -> decreasing u; right view -> increasing u
-    sgn = -1.0 if side == "left" else +1.0
-    N[:, 0] = np.where(np.sign(N[:, 0]) == sgn, N[:, 0], -N[:, 0])
-    N[:, 1] = np.where(np.sign(N[:, 0]) == sgn, N[:, 1], -N[:, 1])  # flip both when needed
+    tan0 = np.tan(np.deg2rad(cone_half_angle_deg))
 
-    # Estimate one-step distance d by projecting all points onto normals from anchor
-    proj_dist = []
-    for r in range(R):
-        a = anchor[r]
-        n = N[r]
-        d = (pts - a[None, :]) @ n  # signed along normal
-        dpos = d[d > 0.0]
-        if dpos.size:
-            proj_dist.append(np.min(dpos))
-    if len(proj_dist) == 0:
-        d_pix = 8.0  # fallback
+    east_mask = (dx > 0) & (np.abs(dy) <= tan0 * dx)
+    west_mask = (dx < 0) & (np.abs(dy) <= tan0 * (-dx))
+    south_mask = (dy > 0) & (np.abs(dx) <= tan0 * dy)
+    north_mask = (dy < 0) & (np.abs(dx) <= tan0 * (-dy))
+
+    with np.errstate(all='ignore'):
+        east_min = np.nanmin(np.where(east_mask, dx, np.nan), axis=1)
+        west_min = np.nanmin(np.where(west_mask, -dx, np.nan), axis=1)
+        south_min = np.nanmin(np.where(south_mask, dy, np.nan), axis=1)
+        north_min = np.nanmin(np.where(north_mask, -dy, np.nan), axis=1)
+
+    sx_candidates = np.concatenate([east_min[~np.isnan(east_min)],
+                                    west_min[~np.isnan(west_min)]], axis=0)
+    sy_candidates = np.concatenate([south_min[~np.isnan(south_min)],
+                                    north_min[~np.isnan(north_min)]], axis=0)
+
+    if sx_candidates.size == 0 or sy_candidates.size == 0:
+        d2 = dx**2 + dy**2
+        d2[np.isnan(d2)] = np.inf
+        nn = np.min(d2, axis=1) ** 0.5
+        m = np.median(nn[nn < np.inf]) if np.any(nn < np.inf) else 1.0
+        sx = np.median(sx_candidates) if sx_candidates.size else m
+        sy = np.median(sy_candidates) if sy_candidates.size else m
     else:
-        d_pix = float(np.median(proj_dist))
-    return N, d_pix
+        sx = np.median(sx_candidates)
+        sy = np.median(sy_candidates)
 
-def robust_index_half(pts: np.ndarray,
-                      rows: int,
-                      cols: int,
-                      side: str,
-                      anchor_bins: Optional[int] = None,
-                      gate_px: float = 12.0,
-                      max_step_mult: float = 1.8) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Robust single-frame indexing (without tracking)
-      1) build anchor column as a smooth extreme-u curve (rightmost for left view, leftmost for right view)
-      2) propagate inward along per-row normals with estimated step size
-      3) per column, pick nearest detections within a gate
-    Returns (uv_grid[R,C,2], mask[R,C]).
-    """
-    R, C = int(rows), int(cols)
-    grid = np.full((R, C, 2), np.nan, dtype=float)
-    mask = np.zeros((R, C), dtype=bool)
-    if pts.size == 0:
-        return grid, mask
+    x_n = x / (sx if sx > 0 else 1.0)
+    y_n = y / (sy if sy > 0 else 1.0)
 
-    anchor, amask = _fit_anchor_column(pts, R, side=side, anchor_bins=anchor_bins)
-    if not np.any(amask):
-        return grid, mask
+    dxn = x_n[None, :] - x_n[:, None]
+    dyn = y_n[None, :] - y_n[:, None]
+    np.fill_diagonal(dxn, np.nan)
+    np.fill_diagonal(dyn, np.nan)
 
-    Nrm, d_pix = _estimate_step_and_normals(anchor, pts, side=side)
-    # Column 0 = anchor (extreme side)
-    c0 = 0
-    grid[:, c0] = anchor
-    mask[:, c0] = amask
+    tan = tan0
+    par_lo, par_hi = par_window
+    lam = float(lambda_perp)
 
-    # Greedy per-column growth
-    used = np.zeros((pts.shape[0],), dtype=bool)
-    # mark used: anything snapped to anchor within gate
-    for r in range(R):
-        if not mask[r, c0]:
-            continue
-        d = np.linalg.norm(pts - grid[r, c0][None, :], axis=1)
-        j = np.argmin(d)
-        if d[j] <= gate_px:
-            used[j] = True
+    # -----------------------------
+    # 1) Pick at most one neighbor in each cone
+    # -----------------------------
+    def pick_neighbor(direction):
+        if direction == 'E':
+            par = dxn; perp = dyn
+            keep = (par > 0) & (np.abs(perp) <= tan * par)
+            par_eff = par
+        elif direction == 'W':
+            par = -dxn; perp = dyn
+            keep = (par > 0) & (np.abs(perp) <= tan * par)
+            par_eff = par
+        elif direction == 'S':
+            par = dyn; perp = dxn
+            keep = (par > 0) & (np.abs(perp) <= tan * par)
+            par_eff = par
+        elif direction == 'N':
+            par = -dyn; perp = dxn
+            keep = (par > 0) & (np.abs(perp) <= tan * par)
+            par_eff = par
+        else:
+            raise ValueError("direction must be one of 'E','W','N','S'")
 
-    for c in range(1, C):
-        for r in range(R):
-            if not mask[r, c-1]:
+        keep &= (par_eff >= par_lo) & (par_eff <= par_hi) & (np.abs(perp) <= perp_max)
+        dist = np.sqrt(dxn**2 + dyn**2)
+        cost = np.where(keep, np.abs(par_eff - 1.0) + lam * np.abs(perp) + 1e-3 * dist, np.inf)
+
+        j_idx = np.argmin(cost, axis=1)
+        j_cost = cost[np.arange(N), j_idx]
+        j_idx[~np.isfinite(j_cost)] = -1
+        return j_idx
+
+    right_cand = pick_neighbor('E')
+    left_cand  = pick_neighbor('W')
+    down_cand  = pick_neighbor('S')
+    up_cand    = pick_neighbor('N')
+
+    # -----------------------------
+    # 2) Mutual confirmation
+    # -----------------------------
+    right = np.full(N, -1, dtype=int)
+    left  = np.full(N, -1, dtype=int)
+    down  = np.full(N, -1, dtype=int)
+    up    = np.full(N, -1, dtype=int)
+
+    for i, j in enumerate(right_cand):
+        if j >= 0 and left_cand[j] == i:
+            right[i] = j
+            left[j] = i
+    for i, j in enumerate(down_cand):
+        if j >= 0 and up_cand[j] == i:
+            down[i] = j
+            up[j] = i
+
+    # degree is the number of confirmed neighbors per node
+    degree = (right >= 0).astype(int) + (left >= 0).astype(int) + \
+             (up >= 0).astype(int) + (down >= 0).astype(int)
+
+    # -----------------------------
+    # 3) Seed selection (central, well-connected)
+    # -----------------------------
+    centroid = np.array([x_n.mean(), y_n.mean()])
+    d2c = (x_n - centroid[0])**2 + (y_n - centroid[1])**2
+    order = np.lexsort((d2c, -degree))  # sorting by primary key: -degree, secondary key: distance to centroid
+    seed = order[0]
+
+    # -----------------------------
+    # 4) BFS indexing
+    # -----------------------------
+    col_idx = np.full(N, np.nan)
+    row_idx = np.full(N, np.nan)
+    col_idx[seed] = 0.0
+    row_idx[seed] = 0.0
+
+    from collections import deque
+    q = deque([seed])
+
+    while q:
+        i = q.popleft()
+        ci = int(col_idx[i]); ri = int(row_idx[i])
+        for j, dc, dr in ((right[i], +1, 0),
+                          (left[i],  -1, 0),
+                          (down[i],  0, +1),
+                          (up[i],    0, -1)):
+            if j < 0: 
                 continue
-            pred = grid[r, c-1] + Nrm[r] * d_pix
-            d = np.linalg.norm(pts - pred[None, :], axis=1)
-            j = np.argmin(d)
-            if used[j]:
-                continue
-            if d[j] <= max_step_mult * gate_px:
-                grid[r, c] = pts[j]
-                mask[r, c] = True
-                used[j] = True
+            if np.isnan(col_idx[j]) or np.isnan(row_idx[j]):
+                col_idx[j] = ci + dc
+                row_idx[j] = ri + dr
+                q.append(j)
             else:
-                # leave missing; next columns may still succeed for other rows
+                # keep first assignment (conservative)
                 pass
-    return grid, mask
 
-def assign_grid_to_predictions(grid_uv: np.ndarray,
-                               grid_mask: np.ndarray,
-                               preds_flat: np.ndarray,
-                               gate_px: float) -> np.ndarray:
-    """
-    Map robust grid (R,C,2) to predicted index order (N,2) by nearest neighbor with gating.
-    Returns (N,2) pixels with NaNs for unmatched.
-    """
-    R, C = grid_uv.shape[:2]
-    N = R * C
-    uv_flat = grid_uv.reshape(N, 2)
-    m_flat = grid_mask.reshape(N)
-    out = np.full((N, 2), np.nan, dtype=float)
-    if preds_flat.size == 0:
-        return out
-    # For each predicted slot, pick nearest valid robust uv if within gate
-    for j in range(N):
-        if not np.isfinite(preds_flat[j, 0]):
-            continue
-        d = np.linalg.norm(uv_flat[m_flat] - preds_flat[j][None, :], axis=1)
-        if d.size == 0:
-            continue
-        k_local = np.argmin(d)
-        # map back to absolute index
-        k_abs = np.flatnonzero(m_flat)[k_local]
-        if d[k_local] <= gate_px:
-            out[j] = uv_flat[k_abs]
-    return out
+    labeled = ~np.isnan(col_idx) & ~np.isnan(row_idx)
+    if not np.any(labeled):
+        grid = np.full((rows, cols, 2), np.nan, dtype=float)
+        mask = np.zeros((rows, cols), dtype=bool)
+        return grid, mask
+
+    col_idx = col_idx[labeled].astype(int)
+    row_idx = row_idx[labeled].astype(int)
+    pts_lab = pts[labeled]
+    degree_lab = degree[labeled]
+
+    # -----------------------------
+    # 5) Anchoring (small change)
+    # -----------------------------
+    cmin, cmax = int(col_idx.min()), int(col_idx.max())
+    rmin, rmax = int(row_idx.min()), int(row_idx.max())
+
+    if anchor == "top-left":
+        col_idx = col_idx - cmin
+        row_idx = row_idx - rmin
+    elif anchor == "top-right":
+        # Rightmost visible -> cols-1; topmost visible -> 0
+        col_idx = col_idx + (cols - 1 - cmax)
+        row_idx = row_idx - rmin
+    elif anchor == "bottom-left":
+        col_idx = col_idx - cmin
+        row_idx = row_idx + (rows - 1 - rmax)
+    elif anchor == "bottom-right":
+        col_idx = col_idx + (cols - 1 - cmax)
+        row_idx = row_idx + (rows - 1 - rmax)
+    else:
+        raise ValueError("anchor must be one of: 'top-left', 'top-right', 'bottom-left', 'bottom-right'")
+
+    # -----------------------------
+    # 6) Write out grid & mask (resolve duplicates by degree)
+    # -----------------------------
+    grid = np.full((rows, cols, 2), np.nan, dtype=float)
+    mask = np.zeros((rows, cols), dtype=bool)
+    conf = np.full((rows, cols), -1, dtype=int)
+
+    for (c, r, p, deg) in zip(col_idx, row_idx, pts_lab, degree_lab):
+        if 0 <= r < rows and 0 <= c < cols:
+            if not mask[r, c] or deg > conf[r, c]:
+                grid[r, c, :] = p
+                mask[r, c] = True
+                conf[r, c] = deg
+
+    return grid, mask
 

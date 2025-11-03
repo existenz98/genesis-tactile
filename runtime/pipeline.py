@@ -269,7 +269,7 @@ class RuntimePipeline:
                     )
                     # Resize to full frame for easy comparison
                     p_bgr = cv2.resize(p_bgr, (Wf, Hf), interpolation=cv2.INTER_CUBIC)
-                    disp.show("physics_pressure", p_bgr)
+                    disp.show("Pressure", p_bgr)
 
                 if pd.show_tau_quiver:
                     tx = phys["tau"]["tx"]; ty = phys["tau"]["ty"]
@@ -284,7 +284,7 @@ class RuntimePipeline:
                         bg=pd.tau_quiver_bg,
                         min_len=pd.tau_quiver_min,
                     )
-                    disp.show("physics_shear", quiv_bgr)
+                    disp.show("Shear", quiv_bgr)
 
                 # Publish message   (receiver is 3D visualization thread)
                 #print("publish >>>")

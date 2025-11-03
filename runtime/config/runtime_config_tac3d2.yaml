@@ -38,17 +38,21 @@ sensor:
 
     # --- grid matching ---
 
-    index_mode: track              # or 'track'
+    index_mode: track              # 'track' | 'robust'
 
     # robust mode parameters
-    robust_anchor_bins: 20          # default: rows
-    robust_gate_px: 12.0
-    robust_max_step_mult: 1.8
-
+    
     # track mode parameters
     match_gating_px: 14.0       # prepare(): predicted vs detected
     search_radius_px: 16.0      # process(): track from last frame
 
     # --- 3D triangulation ---
-    triang_max_reproj_err_px: 2.0
-    triang_min_angle_deg: 0.5
+    triang_max_reproj_err_px: 20.0
+    triang_min_angle_deg: 5.0
+
+
+# ---------- DEBUG DISPLAY (OpenCV windows) ----------
+display:
+  enable: false
+  show_seg_color: true       # show indexing overlays
+  show_flow_color_raw: true  # show 2d displacement as dense color flow
