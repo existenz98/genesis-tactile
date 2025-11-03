@@ -27,13 +27,15 @@
 
 
 """
-mirror-stereo vision tactile sensor
-outputs 3D per-dot deformation
+Mirror-Stereo Dots grid Vision Tactile Sensor
+E.g. Tac3D from Acorn.
+
+Outputs per-dot 3D and 2D deformation
 
 Usage:
 python -m runtime.run_demo   \
-    --source video  --input dataset/sequences/tac3d2_zigzag/video/sequence.mkv  --loop \
-    --config runtime/config/runtime_config_tac3d2.yaml \
+    --source video  --input dataset/sequences/tac3d_zigzag/video/sequence.mkv  --loop \
+    --config runtime/config/runtime_config_stereodots.yaml \
     --vis2d --vis3d
 """
 
@@ -59,8 +61,10 @@ from ...output.visualizer import flow_to_color_bgr, draw_quiver_bgr
 from ...utils.prof import Prof
 
 
-class Tac3D2Adapter(SensorAdapter):
-    """Mirror-stereo (e.g. Tac3D)
+class StereoDotsAdapter(SensorAdapter):
+    """
+    Mirror-stereo dots grid vision tactile sensor
+    (e.g. Tac3D)
     - Uses config.sensor.params for geometry (camera, mirrors, panel).
     - During prepare(first_frame):
         * builds two virtual cameras from mirror planes
@@ -70,8 +74,7 @@ class Tac3D2Adapter(SensorAdapter):
     - During process(frame):
         * detects dots in each half
         * tracks each (r,c) by proximity to last observed pixels
-        * triangulates current 3D, computes Δ vs rest, and returns Deformation(kind='3d')
-    Output shape: (L=1, H=rows, W=cols, C=3) in millimeters (ux, uy, uz) with valid_mask.
+        * triangulates current 3D, computes dots' 3D displacement vs rest, and returns Deformation(kind='3d' and '2d')
     """
 
     def __init__(self, cfg, dbg_disp=None, dbg_writers=None):
@@ -114,7 +117,7 @@ class Tac3D2Adapter(SensorAdapter):
         n2 = (Rm2 @ np.array([0.0, 0.0, 1.0], dtype=float))
         self.mirrors.append({'name': 'm2','center': m2c, 'n': n2, 'R': Rm2})
         if len(self.mirrors) != 2:
-            print(f"[Tac3DAdapter] Warning: expected 2 mirrors; got {len(self.mirrors)}.")
+            print(f"[StereoDotsAdapter] Warning: expected 2 mirrors; got {len(self.mirrors)}.")
 
         # Panel grid
         self.rows = int(P.get('panel_rows', 20))
@@ -236,7 +239,7 @@ class Tac3D2Adapter(SensorAdapter):
         #--- Build virtual cameras ---
         self._build_virtual_cameras()
         if len(self.vcams) < 2:
-            print("[Tac3DAdapter] ERROR: need 2 mirrors/virtual cameras.")
+            print("[StereoDotsAdapter] ERROR: need 2 mirrors/virtual cameras.")
             return
 
         #--- Predict locations for each (r,c) ---
@@ -248,6 +251,9 @@ class Tac3D2Adapter(SensorAdapter):
         #--- Detect blobs in the first frame ---
         gray = cv2.cvtColor(first_bgr, cv2.COLOR_BGR2GRAY)
         ptsL, ptsR = self._detect_halves(gray)      # shape of (n,2), u,v pixel coords
+        num_dots_L = ptsL.shape[0]
+        num_dots_R = ptsR.shape[0]
+        print(f"[StereoDotsAdapter] prepare(): detected {num_dots_L} dots in left, {num_dots_R} in right.")
 
         #--- Indexing dots ---
         N = self.rows * self.cols
@@ -296,7 +302,7 @@ class Tac3D2Adapter(SensorAdapter):
             self.vcams[0]['name']: uvL.reshape(self.rows, self.cols, 2),
             self.vcams[1]['name']: uvR.reshape(self.rows, self.cols, 2),
         }
-        print(f"[Tac3DAdapter] prepare(): rest valid dots = {int(mask.sum())}/{N}")
+        print(f"[StereoDotsAdapter] prepare(): rest valid dots = {int(mask.sum())}/{N}")
 
         #--- Debug display ---
         if self.cfg.display.enable and self.cfg.display.show_seg_color:
@@ -315,7 +321,7 @@ class Tac3D2Adapter(SensorAdapter):
 
         self.frame_id += 1
         if self.rest_X is None:
-            print("[Tac3DAdapter] ERROR: call prepare() first.")
+            print("[StereoDotsAdapter] ERROR: call prepare() first.")
             return None
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 

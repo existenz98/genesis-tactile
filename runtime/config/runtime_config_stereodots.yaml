@@ -1,7 +1,14 @@
+# ==========================================
+# Runtime configuration (streaming pipeline)
+# ==========================================
+
+
 downscale: 1.0
 
 sensor:
-  type: tac3d2
+
+  type: stereo_dots        # mirror-stereo dots grid sensor
+
   params:
     # --- camera intrinsics ---
     img_wh: [640, 480]

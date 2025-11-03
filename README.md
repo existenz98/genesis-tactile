@@ -11,7 +11,7 @@ Vision-Tactile Sensor’s goal is to reconstruct **dense 3D force fields** (pres
 
 **Genesis.tactile** is a **Vision-Tactile Platform** that takes you all the way from **sensor design & simulation**, to **AI model training**, to a **production-ready runtime**, and a **developer SDK**.  
 
-The Runtime algorithm uses the camera observations of soft tactile sensors **in real time**, and to provide a unified interface that works across **different vision-tactile sensor types**, including GelSight-style sensors (e.g., GelSight, 千觉), random-particle sensors, and Tac3D-style sensors (e.g., Acorn Robotics Tac3D).
+The Runtime algorithm uses the camera observations of soft tactile sensors **in real time**, and to provide a unified interface that works across **different vision-tactile sensor types** through plug-able adapters. Example adapters including Photometric-style sensors (e.g., GelSight, 千觉/Xense), Random-particle sensors (e.g. 戴蒙/Daimon), and Mirror-Stereo Dots-style sensors (e.g., Acorn Robotics Tac3D).
 
 
 <p align="center">

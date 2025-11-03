@@ -90,7 +90,7 @@ def index_grid_from_points(
     par_window=(0.5, 1.8),
     perp_max=0.35,
     lambda_perp=0.7,
-    anchor="top-left",   # NEW: choose one of {"top-left","top-right","bottom-left","bottom-right"}
+    anchor="top-left",   # choose one of {"top-left","top-right","bottom-left","bottom-right"}
 ):
     """
     Parameters
