@@ -84,6 +84,8 @@ class RuntimePipeline:
         Initialize pipeline with configuration.
         """
 
+        self._stop_requested = False
+
         self.cfg = cfg
 
         # Algorithm, 1=hard coded Physics, 2=CNN, 3=iFEM
@@ -114,6 +116,12 @@ class RuntimePipeline:
             return FolderSource(self.cfg.input_path, fps=v.fps, loop=v.loop)
         else:
             raise ValueError(f"Unknown source mode: {sm}")
+        
+    def request_stop(self):
+        """
+        Request the pipeline to stop processing after the current frame.
+        """
+        self._stop_requested = True
 
     def run(self, bus: Optional[FrameBus] = None) -> Dict[str, Any]:
 
@@ -221,6 +229,10 @@ class RuntimePipeline:
         src.start()
         try:
             for camera_frame in src.frames():
+                if self._stop_requested:
+                    print("[pipeline] Stop requested; exiting main loop.")
+                    break
+
                 #print("pipeline - got new frame")
 
                 # 0) downsampling input
@@ -325,6 +337,8 @@ class RuntimePipeline:
                 prof.tick()
 
         finally:
+            print("[pipeline] Shutting down pipeline…")
+
             # SDK output related
             ctrl.stop()
             notifier.stop()

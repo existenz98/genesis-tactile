@@ -81,7 +81,7 @@ python -m runtime.run_demo --source video --input video.mp4 --downscale 0.5
 """
 
 import argparse, os, sys
-import threading
+import threading, signal
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if THIS_DIR not in sys.path:
@@ -170,20 +170,69 @@ def main():
     # Create the shared latest-value bus (between algo pipeline and 3D visualization)
     bus = FrameBus()
 
+
+    # stop signal shared by pipeline 3d viewer
+    stop_event = threading.Event()
+
+
     # Start the pipeline on a worker thread
     pipe = RuntimePipeline(cfg)
     t = threading.Thread(target=lambda: pipe.run(bus), name="PipelineThread", daemon=True)
     t.start()
 
+
+    # --- set OS signal handlers to trigger a graceful shutdown ---
+    def _handle_signal(signum, frame):
+        print("\nShutting down…", flush=True)
+        stop_event.set()
+        try:
+            pipe.request_stop()
+        except AttributeError:
+            pass
+        try:
+            viewer.request_close()
+        except Exception:
+            pass
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
     # Start the 3D viewer on the MAIN thread (blocking UI loop)
-    if cfg.vis3d.enable:
-        viewer = Vis3DLive(bus=bus, topic=cfg.vis3d.topic, cfg=cfg.vis3d, normal_gain=cfg.physics.normal_gain)
-        print("viewer.start_blocking() >>>")
-        viewer.start_blocking()
-        print("viewer.start_blocking() <<<")
-    else:
-        # If 3D disabled, just join pipeline or add a CLI loop
-        t.join()
+    try:
+        if cfg.vis3d.enable:
+            viewer = Vis3DLive(bus=bus, topic=cfg.vis3d.topic, cfg=cfg.vis3d, normal_gain=cfg.physics.normal_gain)
+            print("viewer.start_blocking() >>>")
+            viewer.start_blocking()
+            print("viewer.start_blocking() <<<")
+        else:
+            # If 3D disabled, just join pipeline or add a CLI loop.  idle here but remain interruptible
+            while t.is_alive():
+                t.join(timeout=0.5)
+    except KeyboardInterrupt:
+        # ensure clean path even if viewer raised KeyboardInterrupt
+        print("\nKeyboardInterrupt: stopping…", flush=True)
+        stop_event.set()
+        try:
+            pipe.request_stop()
+        except AttributeError:
+            pass
+        try:
+            viewer.request_close()
+        except Exception:
+            pass
+        
+    finally:
+        
+        # join pipeline (with a short timeout) and exit cleanly
+        t.join(timeout=2.0)
+
+        # if the thread didn’t die, avoid ugly aborts by exiting now
+        if t.is_alive():
+            print("Pipeline did not exit in time; forcing shutdown.", flush=True)
+
+        # TODO bus cleanup
+
+        sys.exit(0)  # prevents 'terminate called without an active exception' messages.
 
 if __name__ == "__main__":
     main()

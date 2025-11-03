@@ -56,6 +56,8 @@ from ..core.frame_bus import FrameBus
 
 class Vis3DLive:
     def __init__(self, bus: FrameBus, topic: str, cfg: Vis3DConfig, normal_gain: float):
+        self._close_requested = False
+
         self.bus = bus
         self.topic = topic
         self.cfg = cfg
@@ -71,6 +73,16 @@ class Vis3DLive:
         self._last_ver: Optional[int] = None
 
     # ---------- Public API (MAIN THREAD) ----------
+
+    def request_close(self) -> None:
+        """
+        Request the 3D viewer to close its window and exit.
+        """
+        print("vis3d - request_close()")
+        self._close_requested = True
+        if self._plotter is not None and self._plotter.render_window is not None:
+            print("vis3d - closing plotter window")
+            self._plotter.close()
 
     def start_blocking(self) -> None:
         """
@@ -94,6 +106,10 @@ class Vis3DLive:
         # Manual main-thread loop: process UI events + render + apply our updates
         dt_sec = max(self.cfg.update_ms, 1) / 1000.0
         while pl.render_window is not None:      # window still open
+            if self._close_requested:
+                print("vis3d - close requested; breaking main loop")
+                break
+
             self._update_once()                  # pull latest frame and update actors
             pl.update()                          # process events + render
             # NOTE: avoid time.sleep here if you see sluggish UI; pl.update() already pumps events
