@@ -38,7 +38,9 @@ def render_frame_cv(cam: PinholeCamera,
                     layers: list[LayerSpec],
                     Lx_mm: float, Ly_mm: float,
                     supersample: int = 2,
-                    bg_color: tuple[int, int, int] = (0, 0, 0)) -> np.ndarray:
+                    bg_color: tuple[int, int, int] = (0, 0, 0),
+                    rng: np.random.Generator = np.random.default_rng(),
+                    jitter: float = 0.1) -> np.ndarray:
     """
     Render Camera view
     RGB frame (OpenCV BGR), of size (H,W,3) uint8.
@@ -101,7 +103,7 @@ def render_frame_cv(cam: PinholeCamera,
         col = np.clip((color[i].astype(np.float32) * b), 0, 255).astype(np.uint8)
 
         if is_poly[i] and poly_verts[i] >= 3:
-            poly = _random_convex_polygon((u, v), rad, int(poly_verts[i]))
+            poly = _random_convex_polygon((u, v), rad, int(poly_verts[i]), rng, jitter=jitter)
             cv2.fillPoly(canvas, [poly], color=tuple(int(c) for c in col))
         else:
             cv2.circle(canvas, (int(round(u)), int(round(v))), int(max(1, round(rad))),

@@ -56,13 +56,14 @@ class Particles:
 def _random_convex_polygon(center_px: tuple[float, float],
                            radius_px: float,
                            n_verts: int,
+                           rng: np.random.Generator,
                            jitter: float = 0.35) -> np.ndarray:
     """
     Generate a random convex polygon (2D) around a center with approx radius.
     Returns int32 array of shape (n_verts, 1, 2), suitable for drawing using cv2.fillPoly.
     """
     angles = np.linspace(0, 2*np.pi, n_verts, endpoint=False)
-    angles += np.random.uniform(0, 2*np.pi/n_verts)  # random rotation
+    angles += rng.uniform(0, 2*np.pi/n_verts)       # random rotation.  TODO keep steady inter frame rotation
     r = radius_px * (1.0 + jitter * (2*np.random.rand(n_verts) - 1.0))
     pts = np.stack([np.cos(angles) * r, np.sin(angles) * r], axis=1)
     pts[:, 0] += center_px[0]
