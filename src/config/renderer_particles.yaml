@@ -1,0 +1,26 @@
+camera:
+  model: pinhole
+  img_wh: [640, 480]
+  z_ref_mm: 20.0     # plane depth that maps to full image width/height
+  z_cam_mm: 20.0     # camera center is at z=-20 mm (looking toward +z)
+
+# Visible area in mm (maps to full image at z_ref_mm)
+view_mm: [40.0, 30.0]
+
+# Background color (BGR, 0..255)
+background_bgr: [200, 200, 200]   # a light gray background
+
+layers:
+  - name: gray
+    z_mm: [1.0, 3.0]
+    color_bgr: [80, 80, 80]       # dark gray particles
+    density_per_mm2: 5
+    radius_mm: 0.15
+    depth_brightness: exp # linear | exp
+    depth_beta: 0.15      # controls the brightness falloff with depth
+    shape: poly           # disk | poly
+    poly_vertices: 5      # number of vertices if shape is 'poly'
+
+deformation:
+  mode: none             # "none" | "xdmf"
+  xdmf_path: data/output/u.xdmf

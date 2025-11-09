@@ -31,7 +31,7 @@ def register_sensor(name: str):
     """
     Class decorator,  to register a SensorRenderer with a string key.
     Usage:
-        @register_sensor("particle_vts")
+        @register_sensor("particles")
         class ParticleVTSRenderer(SensorRenderer):
             ...
             ...
@@ -53,7 +53,7 @@ def make_sensor(name: str, **cfg: Any) -> SensorRenderer:
     """
     Instantiate a registered SensorRenderer by name.
     Example:
-        renderer = make_sensor("particle_vts", particles={...}, rasterizer={...})
+        renderer = make_sensor("particles", particles={...}, rasterizer={...})
     """
     key = str(name).strip().lower()
     try:

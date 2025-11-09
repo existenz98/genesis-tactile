@@ -31,8 +31,8 @@ Example:
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000001 \
     --material src/config/material.yaml \
-    --sensor particle_vts \
-    --render-config src/config/renderer.yaml \
+    --sensor particles \
+    --render-config src/config/renderer_particles.yaml \
     --mode pressure --gauss_sigma_min_mm 1.0 --gauss_sigma_max_mm 4.0   --fz_peak_min_mpa 0.05 --fz_peak_max_mpa 0.15   \
     --n_balls 2   --seed 123 \
     --save_flow \
@@ -42,8 +42,8 @@ python src/dataset/gen_sample.py \
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
     --material src/config/material.yaml \
-    --sensor particle_vts \
-    --render-config src/config/renderer.yaml \
+    --sensor particles \
+    --render-config src/config/renderer_particles.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
     --save_flow \
@@ -52,8 +52,8 @@ python src/dataset/gen_sample.py \
 # Torque-only
 python src/dataset/gen_sample.py  \
     --outdir dataset/val/000002     --material src/config/material.yaml \
-    --sensor particle_vts \
-    --render-config src/config/renderer.yaml  \
+    --sensor particles \
+    --render-config src/config/renderer_particles.yaml  \
     --mode torque  \
     --n_balls 1  --seed 42 \
     --save_flow
@@ -62,8 +62,8 @@ python src/dataset/gen_sample.py  \
 python src/dataset/gen_sample.py \
     --outdir dataset/train/000002 \
     --material src/config/material.yaml \
-    --sensor particle_vts \
-    --render-config src/config/renderer.yaml \
+    --sensor particles \
+    --render-config src/config/renderer_particles.yaml \
     --mode combo \
     --n_balls 2 --seed 100 \
     --save_flow
@@ -156,7 +156,7 @@ def parse_args():
     p.add_argument("--outdir", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True, help="YAML used by forward FEM.")
 
-    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "stereodots"])
+    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "gelsight_style", "stereodots"])
     p.add_argument("--render-config", type=Path, required=True, help="YAML used by sensor renderer.")
 
     p.add_argument("--mode", type=str, default="combo", choices=["pressure", "shear", "torque", "combo"])

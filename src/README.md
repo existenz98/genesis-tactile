@@ -127,7 +127,7 @@ Supports **All sensor types, including Particle, Gelsight, Tac3D**
 
 ```bash
 python src/scripts/render_sensor_frame.py \
-  --sensor particle_vts \
+  --sensor particles \
   --config src/config/renderer.yaml \
   --out data/output/render_pts.png \
   --seed 123 \
@@ -195,7 +195,7 @@ Single sample test:
 python src/dataset/gen_sample.py \
     --outdir dataset/val/000001 \
     --material src/config/material.yaml \
-    --sensor particle_vts \
+    --sensor particles \
     --render-config src/config/renderer.yaml \
     --mode shear  \
     --n_balls 1  --seed 41 \
@@ -209,7 +209,7 @@ Generate dataset (many samples, in parallel):
 python src/dataset/gen_dataset.py \
     --root dataset/train \
     --material src/config/material.yaml \
-    --sensor particle_vts \
+    --sensor particles \
     --render-config src/config/renderer.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \

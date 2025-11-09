@@ -17,6 +17,6 @@
 
 
 
-from .renderer import ParticleVTSRenderer
+from .renderer import ParticlesRenderer
 
-__all__ = ["ParticleVTSRenderer"]
+__all__ = ["ParticlesRenderer"]

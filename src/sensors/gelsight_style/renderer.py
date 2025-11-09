@@ -16,7 +16,7 @@
 # -----------------------------------------------------------------------------
 
 """
-GelSight-style renderer (photometric normals + marker grid).
+Photometric stereo + Marker grid (GelSight-style) renderer.
 
 Minimal model:
 - Build a per-pixel height map z'(x,y) from the FEM deformation sampled at z=0,

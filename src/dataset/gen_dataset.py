@@ -23,8 +23,8 @@ Example:
   python src/dataset/gen_dataset.py \
     --root dataset/train \
     --material src/config/material.yaml \
-    --sensor particle_vts \
-    --render-config src/config/renderer.yaml \
+    --sensor particles \
+    --render-config src/config/renderer_particles.yaml \
     --n 1000 --jobs 8 \
     --mode_mix 0.25,0.25,0.25,0.25 \
     --n_balls_min 1 --n_balls_max 2
@@ -47,7 +47,7 @@ def parse_args():
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True)
 
-    p.add_argument("--sensor", type=str, default="particle_vts", help="Registered sensor name (default: particle_vts)", choices=["particle_vts", "gelsight_style", "stereodots"])
+    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "gelsight_style", "stereodots"])
     p.add_argument("--render-config", type=Path, required=True)
 
     p.add_argument("--n", type=int, required=True)

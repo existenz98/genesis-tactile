@@ -136,7 +136,7 @@ class SensorRenderer(ABC):
     # ---- Identification / schema ----
     @abstractmethod
     def name(self) -> str:
-        """Stable, lowercase sensor type name (e.g., 'particle_vts')."""
+        """Stable, lowercase sensor type name (e.g., 'particles')."""
         raise NotImplementedError
 
     def version(self) -> str:

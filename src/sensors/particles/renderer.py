@@ -22,10 +22,22 @@ Renderer of Particle-based Vision Tactile Sensor
 implemented as a plugin.
 
 How to use:
+
+1. Standard particle sensor (Daimon style).
+
 python src/scripts/render_sensor_frame.py \
-  --sensor particle_vts \
-  --config src/config/renderer.yaml \
-  --out data/output/particle_frame.png
+  --sensor particles \
+  --config src/config/renderer_particles.yaml \
+  --out data/output/particles.png
+
+2. Special multi-layer multi-color particle sensors (Fudan University Embodied AI lab design)
+
+python src/scripts/render_sensor_frame.py \
+  --sensor particles \
+  --config src/config/renderer_particles_multilayer.yaml \
+  --out data/output/particles_layered.png
+
+
 """
 
 from __future__ import annotations
@@ -86,12 +98,12 @@ def _build_deform_field_from_cfg(def_cfg: Dict[str, Any]) -> DeformField:
     return field
 
 
-@register_sensor("particle_vts")
-class ParticleVTSRenderer(SensorRenderer):
+@register_sensor("particles")
+class ParticlesRenderer(SensorRenderer):
     """
-    Particle-based Vision Tactile Sensor renderer (VTS), implemented as a plugin.
+    Particles-based Vision Tactile Sensor renderer, implemented as a plugin.
 
-    This renderer mirrors `scripts/render_camera_frame.py`:
+    Features:
       - Uses YAML config files for: camera/view_mm/background_bgr/layers/deformation
       - Generates random particles, samples XDMF deformation, renders via OpenCV
       - Saves BGR images (OpenCV convention)
@@ -105,7 +117,7 @@ class ParticleVTSRenderer(SensorRenderer):
     """
 
     def name(self) -> str:
-        return "particle_vts"
+        return "particle"
 
     def version(self) -> str:
         return "0.1.0"
@@ -170,7 +182,7 @@ class ParticleVTSRenderer(SensorRenderer):
         supersample = int(cfg.get("supersample", 2))
         img_bgr = render_frame_cv(
             cam, parts, layers, Lx_mm, Ly_mm,
-            supersample=supersample, bg_color=bg_bgr
+            supersample=supersample, bg_color=bg_bgr, rng=rng, jitter=0.0
         )
 
         # Package outputs (mirror script behavior)

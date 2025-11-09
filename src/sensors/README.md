@@ -7,7 +7,7 @@ A plugin-like layer so the dataset/simulation pipeline can support multiple **vi
 - **SensorRenderer (base class)** — defines `render_frame()` which produces the
   observables for one frame (e.g., RGB image, dense optical flow).
 - **Registry** — a factory to instantiate a renderer by name
-  (`make_sensor("particle_vts", **cfg)`).
+  (`make_sensor("particles", **cfg)`).
 - **FEMOutputs / Scene** — passed to the renderer.
 
 ## File Overview
@@ -16,13 +16,13 @@ A plugin-like layer so the dataset/simulation pipeline can support multiple **vi
 sensors/
 ├── base.py # abstract API: SensorRenderer + data containers
 ├── registry.py # register_sensor decorator + factory
-└── particle_vts/
+└── particles/
     └── renderer.py # adapter over existing synth/* modules
 ```
 
 ## Particle VTS Renderer
 
-`particle_vts/renderer.py` is a *thin adapter* that calls `synth.particles`, `synth.deform`, `synth.camera`, `synth.raster_cv`, and `synth.optical_flow`. 
+`particles/renderer.py` is a *thin adapter* that calls `synth.particles`, `synth.deform`, `synth.camera`, `synth.raster_cv`, and `synth.optical_flow`. 
 
 ### Returned Modalities
 
@@ -41,7 +41,7 @@ fem_results = FEMOutputs(u_dofs=u_dofs, force_top=force_top, surface_mesh=surfac
 # camera: synth.camera model instance
 scene = Scene(camera=camera)
 
-renderer = make_sensor("particle_vts",
+renderer = make_sensor("particles",
                        particles={"num_layers": 3, "density": 0.5},
                        rasterizer={"radius_px": 2.0, "blur_sigma": 0.8},
                        flow={"method": "TPS"})

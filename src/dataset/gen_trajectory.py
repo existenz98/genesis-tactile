@@ -35,11 +35,16 @@ Notes:
 
 
 Usage example:
+
+Use proper --sensor ,  --material , and --render-config  settings  to switch sensor types.
+
+1. Generate 'Particles Sensor' sequence:
+
 python src/dataset/gen_trajectory.py \
-  --outdir dataset/sequences/000001 \
+  --outdir dataset/sequences/particles_press_slide_lift \
   --material src/config/material.yaml \
-  --sensor particle_vts \
-  --render-config src/config/renderer.yaml \
+  --sensor particles \
+  --render-config src/config/renderer_particles.yaml \
   --spec src/config/trajectories/press_slide_lift.yaml \
   --save_flow \
   --write_video
@@ -61,22 +66,18 @@ outdir/
     rgb/000000.png ...
     sequence.mp4
 
-Generate gelsight style or tac3d style sequences by changing --sensor and --render-config.
-e.g.
-
-gelsight style:
+2. Generate gelsight style sensor:
 
 python src/dataset/gen_trajectory.py \
-  --outdir dataset/sequences/000001 \
+  --outdir dataset/sequences/gelsight_press_slide_lift \
   --material src/config/material.yaml \
   --sensor gelsight_style \
   --render-config src/config/renderer_gelsight.yaml \
   --spec src/config/trajectories/press_slide_lift.yaml \
   --save_flow \
   --write_video
-
   
-tac3d style:
+3. Tac3D style sensor:
 
 python src/dataset/gen_trajectory.py \
   --outdir dataset/sequences/tac3d_press_slide_lift  \
@@ -86,8 +87,19 @@ python src/dataset/gen_trajectory.py \
   --spec src/config/trajectories/press_slide_lift.yaml \
   --write_video
 
+4. Multi-layer Multi-color Particle sensor style:
+
+python src/dataset/gen_trajectory.py \
+  --outdir dataset/sequences/tac3d_press_slide_lift  \
+  --material src/config/material_multilayer.yaml \
+  --sensor stereodots  \
+  --render-config src/config/renderer_particles_multilayer.yaml  \
+  --spec src/config/trajectories/particlesmlmc_press_slide_lift.yaml \
+  --write_video
 
 """
+
+
 
 from __future__ import annotations
 import argparse, json, shutil, subprocess, sys, time
@@ -114,7 +126,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", type=Path, required=True, help="Output sequence directory.")
     p.add_argument("--material", type=Path, required=True, help="YAML for FEM (forward).")
-    p.add_argument("--sensor", type=str, default="particle_vts", choices=["particle_vts", "gelsight_style", "stereodots"], help="Registered sensor name (default: particle_vts).")
+    p.add_argument("--sensor", type=str, default="particles", choices=["particles", "gelsight_style", "stereodots"], help="Registered sensor name (default: particles).")
     p.add_argument("--render-config", type=Path, required=True, help="YAML for sensor renderer.")
     p.add_argument("--spec", type=Path, required=True, help="Keyframe specification YAML.")
     p.add_argument("--save_flow", action="store_true", help="Compute optical flow (current frame vs original I0).")

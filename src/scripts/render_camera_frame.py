@@ -17,12 +17,12 @@
 
 
 """
-Render synthetic camera frame of layered colored particles.
+Render synthetic camera frame of 'random particles' sensor.
 
 Example:
   python src/scripts/render_frame.py \
-    --config src/config/renderer.yaml \
-    --out data/output/render.png \
+    --config src/config/renderer_particles.yaml \
+    --out data/output/particles.png \
     --seed 123
 
 The renderer:

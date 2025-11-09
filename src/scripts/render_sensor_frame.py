@@ -22,22 +22,36 @@ Render a synthetic camera frame via the sensor plugin registry.
 This script is a generic variant of render_camera_frame.py:
 - Same CLI + one extra flag: --sensor
 - Same YAML schema (camera, view_mm, background_bgr, layers, deformation)
-- Works with any registered sensor (particle_vts, gelsight_style, ...)
+- Works with any registered sensor (particles, gelsight_style, ...)
 
 Examples:
-  # Particle-based sensor
+  # Particles-based sensor (Daimon style)
   python src/scripts/render_sensor_frame.py \
-    --sensor particle_vts \
-    --config src/config/renderer.yaml \
-    --out data/output/render_pts.png \
+    --sensor particles \
+    --config src/config/renderer_particles.yaml \
+    --out data/output/render_particles.png \
     --seed 123 \
     --supersample 2
 
-  # GelSight-style sensor
+  # Photometric sensor (GelSight style)
   python src/scripts/render_sensor_frame.py \
       --sensor gelsight_style \
       --config src/config/renderer_gelsight.yaml \
-      --out data/output/render_gs.png
+      --out data/output/render_gelsight.png
+
+  # Stereo Dots sensor (Acorn Tac3D style)
+  python src/scripts/render_sensor_frame.py \
+      --sensor stereodots \
+      --config src/config/renderer_tac3d.yaml \
+      --out data/output/render_tac3d.png
+
+  # Multi-layer multi-color Particles sensor (Fudan University Embodied AI lab design)
+  python src/scripts/render_sensor_frame.py \
+    --sensor particles \
+    --config src/config/renderer_particles_multilayer.yaml \
+    --out data/output/render_particles_layered.png \
+    --seed 123 \
+    --supersample 2
 """
 
 from __future__ import annotations
@@ -63,7 +77,7 @@ def _try_import(module_name: str) -> None:
         print(f"[render_sensor_frame] Error: could not import module '{module_name}' for sensor registration")
         pass
 
-_try_import("sensors.particle_vts")
+_try_import("sensors.particles")
 _try_import("sensors.gelsight_style")
 _try_import("sensors.stereodots")
 # ... here to add future plugin(s)
@@ -76,8 +90,8 @@ def _load_yaml(path: Path) -> dict:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--sensor", type=str, default="particle_vts",
-                   help="Registered sensor name (default: particle_vts)")
+    p.add_argument("--sensor", type=str, default="particles",
+                   help="Registered sensor name (default: particles)")
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--seed", type=int, default=0)
@@ -107,8 +121,9 @@ def main():
     frame = renderer.render_frame(fem, scene)
 
     # Choose the most common modality name for images across sensors.
-    # particle_vts returns 'image_bgr'; gelsight_style might return 'image_rgb'.
+    # particles returns 'image_bgr'; gelsight_style might return 'image_rgb'.
     # Prefer BGR if present (OpenCV write), fall back to RGB and convert.
+    # TODO: standardize sensor outputs to avoid this logic.
     modalities = frame.modalities
     if "image_bgr" in modalities:
         img_bgr = modalities["image_bgr"]
