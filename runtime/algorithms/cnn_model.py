@@ -127,7 +127,7 @@ class CnnForceSolver:
         ckpt_path = Path(self.cfg.checkpoint)
         if not ckpt_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
-        state = torch.load(str(ckpt_path), map_location=self.device)
+        state = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
         # Support either {"model": state_dict} or pure state_dict
         state_dict = state["model"] if isinstance(state, dict) and "model" in state else state
         missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
