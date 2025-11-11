@@ -29,9 +29,9 @@ Kept intentionally simple & fast,  No gamma/noise/speculars/shadows.
 
 Usage:
   python src/scripts/render_sensor_frame.py \
-      --sensor gelsight_style \
+      --sensor photometric \
       --config src/config/renderer_gelsight.yaml \
-      --out data/output/render_gs.png
+      --out data/output/render_gelsight.png
 
 
 Expected YAML keys (see gelsight_renderer.yaml sample at the end of this file):
@@ -254,14 +254,15 @@ def _bilinear_flow_from_marker_grid(
 
 
 # ----------------------------- renderer class --------------------------------
-@register_sensor("gelsight_style")
-class GelSightStyleRenderer(SensorRenderer):
+@register_sensor("photometric")
+class PhotometricRenderer(SensorRenderer):
     """
-    GelSight-style renderer (plugin).
+    Photometric Renderer plugin.  
+    GelSight-style photometric stereo + marker grid renderer.
     """
 
     def name(self) -> str:
-        return "gelsight_style"
+        return "photometric"
 
     def version(self) -> str:
         return "0.1.0"

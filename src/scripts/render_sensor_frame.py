@@ -22,7 +22,7 @@ Render a synthetic camera frame via the sensor plugin registry.
 This script is a generic variant of render_camera_frame.py:
 - Same CLI + one extra flag: --sensor
 - Same YAML schema (camera, view_mm, background_bgr, layers, deformation)
-- Works with any registered sensor (particles, gelsight_style, ...)
+- Works with any registered sensor (particles, photometric, ...)
 
 Examples:
   # Particles-based sensor (Daimon style)
@@ -35,7 +35,7 @@ Examples:
 
   # Photometric sensor (GelSight style)
   python src/scripts/render_sensor_frame.py \
-      --sensor gelsight_style \
+      --sensor photometric \
       --config src/config/renderer_gelsight.yaml \
       --out data/output/render_gelsight.png
 
@@ -45,7 +45,7 @@ Examples:
       --config src/config/renderer_tac3d.yaml \
       --out data/output/render_tac3d.png
 
-  # Multi-layer multi-color Particles sensor (Fudan University Embodied AI lab design)
+  # Multi-layer multi-color Particles sensor (Fudan University Embodied AI Lab's design)
   python src/scripts/render_sensor_frame.py \
     --sensor particles \
     --config src/config/renderer_particles_multilayer.yaml \
@@ -78,7 +78,7 @@ def _try_import(module_name: str) -> None:
         pass
 
 _try_import("sensors.particles")
-_try_import("sensors.gelsight_style")
+_try_import("sensors.photometric")
 _try_import("sensors.stereodots")
 # ... here to add future plugin(s)
 
@@ -121,7 +121,7 @@ def main():
     frame = renderer.render_frame(fem, scene)
 
     # Choose the most common modality name for images across sensors.
-    # particles returns 'image_bgr'; gelsight_style might return 'image_rgb'.
+    # particles renderer returns 'image_bgr'; photometric renderer might return 'image_rgb'.
     # Prefer BGR if present (OpenCV write), fall back to RGB and convert.
     # TODO: standardize sensor outputs to avoid this logic.
     modalities = frame.modalities

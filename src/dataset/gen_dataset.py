@@ -47,7 +47,7 @@ def parse_args():
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True)
 
-    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "gelsight_style", "stereodots"])
+    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "photometric", "stereodots"])
     p.add_argument("--render-config", type=Path, required=True)
 
     p.add_argument("--n", type=int, required=True)

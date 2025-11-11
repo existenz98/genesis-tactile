@@ -7,12 +7,24 @@
 
 ## TL;DR
 
-Vision-Tactile Sensor’s goal is to reconstruct **dense 3D force fields** (pressure + shear).
+Vision-Tactile Sensor’s goal is to reconstruct **dense 3D force fields** (expressing local pressure + shear + torque) from vision.
 
-**Genesis.tactile** is a **Vision-Tactile Platform** that takes you all the way from **sensor design & simulation**, to **AI model training**, to a **production-ready runtime**, and a **developer SDK**.  
+**Genesis.tactile** is a **Vision-Tactile Platform** that takes you all the way from **sensor design & simulation (EDA)**, to **dataset generation AI model training**, to a **production-ready runtime**, and **developer SDK**, sample **3D Visualizer GUI**.  
 
-The Runtime algorithm uses the camera observations of soft tactile sensors **in real time**, and to provide a unified interface that works across **different vision-tactile sensor types** through plug-able adapters. Example adapters including Photometric-style sensors (e.g., GelSight, 千觉/Xense), Random-particle sensors (e.g. 戴蒙/Daimon), and Mirror-Stereo Dots-style sensors (e.g., Acorn Robotics Tac3D).
+It’s built to help **everyone**—researchers, students, engineers, and companies—**improve existing designs and invent new ones** rapidly through plug-in simulators, data generators, and runtime adapters.
 
+**Unified runtime.** The runtime consumes camera observations from soft tactile sensors or from recorded video data **in real time** and exposes a uniform API across different vision-tactile families via **plug-able adapters**.
+
+Both **synthetic data generator** and **runtime** are based on **plug-able adapters** design. Example adapter families include:
+- **Photometric** (e.g., GelSight, 千觉/Xense)
+- **Random-particle** (e.g., 戴蒙/Daimon)
+- **Mirror-stereo dots** (e.g., Acorn Robotics Tac3D).
+
+**IP & responsible use (important)**  
+> The adapters and examples above illustrate **general operating principles** for compatibility and research. They do **not** convey any rights to third-party designs or patents. Company and product names are used **for identification only**; no affiliation or endorsement is implied.  
+> If you intend to **commercialize** a sensor that is derived from, similar to, or interoperable with these examples, **you are responsible** for **verifying patent coverage** and **obtaining the required permissions/licenses from the rights holders** (and paying any applicable fees). Consult your legal counsel before commercial use.
+
+---
 
 <p align="center">
   <img src="docs/assets/genesis_tactile_overview.png" width="500" alt="Genesis.tactile overview">

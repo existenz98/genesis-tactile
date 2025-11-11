@@ -156,7 +156,7 @@ def parse_args():
     p.add_argument("--outdir", type=Path, required=True)
     p.add_argument("--material", type=Path, required=True, help="YAML used by forward FEM.")
 
-    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "gelsight_style", "stereodots"])
+    p.add_argument("--sensor", type=str, default="particles", help="Registered sensor name (default: particles)", choices=["particles", "photometric", "stereodots"])
     p.add_argument("--render-config", type=Path, required=True, help="YAML used by sensor renderer.")
 
     p.add_argument("--mode", type=str, default="combo", choices=["pressure", "shear", "torque", "combo"])

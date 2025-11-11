@@ -1,14 +1,14 @@
 
-# GelSight‑style image generator
+# Photometric stereo + Marker grid (e.g. GelSight) image generator  
 
-Here is Blueprint of what the image should look like, and how we synthesize it.
+Here is Blueprint of what the image should look like, and how synthesize is implemented.
 
 
 
-## 1) What the GelSight image looks like
+## 1) What the Photometric stereo + Marker grid image looks like
 
-- **Neutral gray at rest**  
-  With the gel surface flat (normal ≈ +z), the three oblique RGB lights contribute equally → the camera sees a near-uniform mid-gray field.
+- **Neutral gray at rest**
+  With the gel surface flat (normal ≈ +z), the three oblique RGB lights contribute equally → the camera sees a near-uniform mid-gray field.  
 
 - **Color encodes local surface normal**  
   Under indentation, each pixel’s color shifts toward the light whose direction it faces.  
@@ -19,15 +19,15 @@ Here is Blueprint of what the image should look like, and how we synthesize it.
 - **Marker grid on the reflective skin**  
   A regular grid of dark micro-dots printed on the thin top reflective layer:  
   - Dots move with the skin → from the camera they appear slightly scaled/warped by foreshortening.  
-  - They are high-contrast (nearly black) over the shaded background, aiding sub-pixel localization.
+  - They are high-contrast (nearly black) over the shaded background, aiding sub-pixel localization.  
 
-- **Typical artifacts we should mimic (to taste)**  
+- **Typical artifacts we should mimic (TODO)**  
   - Slight *non-Lambertian* sheen (a gentle highlight near a light direction).  
-  - *Illumination non-uniformity* and *color cross-talk* (so it’s not “too perfect”).  
-  - Mild vignetting, camera PSF blur, quantization, and sensor noise.  
-  - A subtle dark ring at contact boundary due to shadowing ($\mathbf{n}\cdot\mathbf{l} < 0$).
+  - *Illumination non-uniformity* and *color cross-talk* (so it’s not too perfect).  
+  - Vignetting, camera PSF blur, quantization, and sensor noise...  
+  - A subtle dark ring at contact boundary due to shadowing ($\mathbf{n}\cdot\mathbf{l} < 0$).  
 
-## 2) Inputs & frames (assumptions)
+## 2) Inputs & frames (assumptions)  
 
 - **FEM top surface**: deformed displacement field  
   $$
@@ -186,15 +186,15 @@ the three channels are equal (mid-gray).  This guarantees the **“unpressed = g
 
 - **PSF blur**: apply a small Gaussian after downsampling to mimic optics.  
 
-- **Background**: keep your `background_bgr` outside the gel area.
+- **Background**: keep `background_bgr` outside the gel area.
 
 ## 8) Outputs (modalities) to save per frame
 
-- `render.png` *(final GelSight rendering)*  
+- `render.png` *(final rendered image)*  
 - `geom/normal_map.npy` (H×W×3, float32)  
 - `geom/depth_map.npy` (H×W, float32, mm)  
 - `markers/rest_px.npy`, `markers/def_px.npy` (N×2, float32)  
 - `markers/rest_xyz.npy`, `markers/def_xyz.npy` (N×3, float32, mm)  
-- `flow/dense.npy`, `flow/mask.png` *(from markers, optional but recommended for quick eval)*  
+- `flow/dense.npy`, `flow/mask.png` *(from markers, optional, good for quick eval)*  
 - `calib/` *(shared per dataset: light directions, intensities, mixing matrix, gamma, flat-field, camera intrinsics)*  
 

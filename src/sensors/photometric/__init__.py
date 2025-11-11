@@ -15,7 +15,7 @@
 #   Please cite associated publications when available.
 # -----------------------------------------------------------------------------
 
-from .renderer import GelSightStyleRenderer
+from .renderer import PhotometricRenderer
 
-__all__ = ["GelSightStyleRenderer"]
+__all__ = ["PhotometricRenderer"]
 

@@ -66,18 +66,18 @@ outdir/
     rgb/000000.png ...
     sequence.mp4
 
-2. Generate gelsight style sensor:
+2. Generate for Photometric (gelsight style) sensor:
 
 python src/dataset/gen_trajectory.py \
   --outdir dataset/sequences/gelsight_press_slide_lift \
   --material src/config/material.yaml \
-  --sensor gelsight_style \
+  --sensor photometric \
   --render-config src/config/renderer_gelsight.yaml \
   --spec src/config/trajectories/press_slide_lift.yaml \
   --save_flow \
   --write_video
-  
-3. Tac3D style sensor:
+
+3. Generate for Mirror-Stereo Dots (Tac3D style) sensor:
 
 python src/dataset/gen_trajectory.py \
   --outdir dataset/sequences/tac3d_press_slide_lift  \
@@ -126,7 +126,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", type=Path, required=True, help="Output sequence directory.")
     p.add_argument("--material", type=Path, required=True, help="YAML for FEM (forward).")
-    p.add_argument("--sensor", type=str, default="particles", choices=["particles", "gelsight_style", "stereodots"], help="Registered sensor name (default: particles).")
+    p.add_argument("--sensor", type=str, default="particles", choices=["particles", "photometric", "stereodots"], help="Registered sensor name (default: particles).")
     p.add_argument("--render-config", type=Path, required=True, help="YAML for sensor renderer.")
     p.add_argument("--spec", type=Path, required=True, help="Keyframe specification YAML.")
     p.add_argument("--save_flow", action="store_true", help="Compute optical flow (current frame vs original I0).")
